@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import pandas as pd
-import json
+import configparser
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -12,8 +12,19 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
+# For PDF export
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Preformatted
+    from reportlab.lib.enums import TA_LEFT
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
 # Import the AutoGrader class (assumes it's in the same directory)
-# from AutoGrader import AutoGrader
+# from autograder import AutoGrader
 
 
 class AutoGraderGUI:
@@ -26,14 +37,14 @@ class AutoGraderGUI:
         
         # Student info
         self.student_name = tk.StringVar()
-        self.student_email = tk.StringVar()
         self.selected_file = tk.StringVar()
         self.selected_assignment = tk.StringVar()
         
         # Data storage
         self.assignments = {}
-        self.config = {}
+        self.config = None
         self.grader = None
+        self.debug_mode = True
         
         # Load configuration and assignments
         self.load_config()
@@ -43,22 +54,22 @@ class AutoGraderGUI:
         self.create_widgets()
         
     def load_config(self):
-        """Load email configuration from config.json"""
+        """Load configuration from config.ini"""
         try:
-            with open('config.json', 'r') as f:
-                self.config = json.load(f)
+            self.config = configparser.ConfigParser()
+            self.config.read('config.ini')
+            
+            # Get debug setting
+            self.debug_mode = self.config.getboolean('settings', 'debug', fallback=True)
+            
         except FileNotFoundError:
             messagebox.showerror("Config Error", 
-                "config.json not found. Please create it with email settings.")
-            self.config = {
-                'email': {
-                    'smtp_server': 'smtp.gmail.com',
-                    'smtp_port': 587,
-                    'sender_email': '',
-                    'sender_password': '',
-                    'instructor_email': ''
-                }
-            }
+                "config.ini not found. Please create it with email settings.")
+            self.config = None
+        except Exception as e:
+            messagebox.showerror("Config Error", 
+                f"Error reading config.ini: {str(e)}")
+            self.config = None
     
     def load_assignments(self):
         """Load assignments from Excel file"""
@@ -103,10 +114,6 @@ class AutoGraderGUI:
         name_entry = ttk.Entry(info_frame, textvariable=self.student_name, width=40)
         name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         
-        ttk.Label(info_frame, text="Email:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        email_entry = ttk.Entry(info_frame, textvariable=self.student_email, width=40)
-        email_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
-        
         info_frame.columnconfigure(1, weight=1)
         
         # ===== Assignment Selection Section =====
@@ -148,6 +155,10 @@ class AutoGraderGUI:
         self.check_button.pack(side=tk.LEFT, padx=5)
         
         ttk.Button(button_frame, text="Clear Results", command=self.clear_results).pack(
+            side=tk.LEFT, padx=5
+        )
+        
+        ttk.Button(button_frame, text="Export to PDF", command=self.export_to_pdf).pack(
             side=tk.LEFT, padx=5
         )
         
@@ -197,10 +208,6 @@ class AutoGraderGUI:
             messagebox.showwarning("Missing Information", "Please enter your name.")
             return False
         
-        if not self.student_email.get().strip():
-            messagebox.showwarning("Missing Information", "Please enter your email.")
-            return False
-        
         if not self.selected_assignment.get():
             messagebox.showwarning("Missing Information", "Please select an assignment.")
             return False
@@ -230,7 +237,7 @@ class AutoGraderGUI:
             tests = self.assignments[assignment_name]
             
             # Initialize grader
-            from AutoGrader import AutoGrader
+            from autograder import AutoGrader
             self.grader = AutoGrader(self.selected_file.get(), timeout=15)
             
             # Display header
@@ -306,9 +313,16 @@ class AutoGraderGUI:
                     self.grader.check_operator_used(test['operator'])
                 
                 elif test_type == 'code_contains':
+                    case_sensitive = test.get('case_sensitive', True)
+                    # Handle various representations of boolean values
+                    if isinstance(case_sensitive, str):
+                        case_sensitive = case_sensitive.lower() in ['true', 'yes', '1']
+                    elif pd.isna(case_sensitive):
+                        case_sensitive = True
+                    
                     self.grader.check_code_contains(
                         test['phrase'],
-                        case_sensitive=test.get('case_sensitive', 'true').lower() == 'true'
+                        case_sensitive=bool(case_sensitive)
                     )
                 
                 elif test_type == 'plot_created':
@@ -378,7 +392,6 @@ class AutoGraderGUI:
         self.results_text.insert(tk.END, "AUTOGRADER RESULTS\n", 'header')
         self.results_text.insert(tk.END, "="*70 + "\n", 'header')
         self.results_text.insert(tk.END, f"Student: {self.student_name.get()}\n")
-        self.results_text.insert(tk.END, f"Email: {self.student_email.get()}\n")
         self.results_text.insert(tk.END, f"Assignment: {self.selected_assignment.get()}\n")
         self.results_text.insert(tk.END, f"File: {os.path.basename(self.selected_file.get())}\n")
         self.results_text.insert(tk.END, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -438,26 +451,37 @@ class AutoGraderGUI:
     def send_email(self):
         """Send results via email"""
         try:
-            email_config = self.config.get('email', {})
+            if not self.config:
+                if self.debug_mode:
+                    self.results_text.insert(tk.END, "\nNote: Email not configured. Results not sent.\n")
+                return
             
-            if not email_config.get('sender_email') or not email_config.get('sender_password'):
-                self.results_text.insert(tk.END, "\nNote: Email not configured. Results not sent.\n")
+            sender_email = self.config.get('email', 'sender_email', fallback='')
+            sender_password = self.config.get('email', 'sender_password', fallback='')
+            instructor_email = self.config.get('email', 'instructor_email', fallback='')
+            
+            if not sender_email or not sender_password or not instructor_email:
+                if self.debug_mode:
+                    self.results_text.insert(tk.END, "\nNote: Email not fully configured. Results not sent.\n")
                 return
             
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = email_config['sender_email']
-            msg['To'] = email_config['instructor_email']
-            msg['Subject'] = f"AutoGrader Results - {self.student_name.get()} - {self.selected_assignment.get()}"
+            msg['From'] = sender_email
+            msg['To'] = instructor_email
+            
+            # Format: Assignment Name, Student Name, Date, Time
+            timestamp = datetime.now()
+            subject = f"{self.selected_assignment.get()}, {self.student_name.get()}, {timestamp.strftime('%Y-%m-%d')}, {timestamp.strftime('%H:%M:%S')}"
+            msg['Subject'] = subject
             
             # Email body
             body = f"""
 AutoGrader Submission
 
 Student Name: {self.student_name.get()}
-Student Email: {self.student_email.get()}
 Assignment: {self.selected_assignment.get()}
-Submission Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Submission Date: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 
 Results:
 {self.results_text.get(1.0, tk.END)}
@@ -476,15 +500,113 @@ Results:
                 msg.attach(part)
             
             # Send email
-            with smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port']) as server:
+            smtp_server = self.config.get('email', 'smtp_server')
+            smtp_port = self.config.getint('email', 'smtp_port')
+            
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
                 server.starttls()
-                server.login(email_config['sender_email'], email_config['sender_password'])
+                server.login(sender_email, sender_password)
                 server.send_message(msg)
             
             self.results_text.insert(tk.END, "\n✓ Results emailed to instructor!\n", 'pass')
             
         except Exception as e:
-            self.results_text.insert(tk.END, f"\n✗ Failed to send email: {str(e)}\n", 'fail')
+            if self.debug_mode:
+                self.results_text.insert(tk.END, f"\n✗ Failed to send email: {str(e)}\n", 'fail')
+    
+    def export_to_pdf(self):
+        """Export code and results to PDF"""
+        if not self.selected_file.get():
+            messagebox.showwarning("No File", "Please select a file and check code first.")
+            return
+        
+        if not PDF_AVAILABLE:
+            messagebox.showerror("PDF Export Error", 
+                "ReportLab library not installed. Install with: pip install reportlab")
+            return
+        
+        try:
+            # Ask where to save PDF
+            pdf_filename = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
+                initialfile=f"{self.student_name.get()}_{self.selected_assignment.get()}_results.pdf"
+            )
+            
+            if not pdf_filename:
+                return
+            
+            # Create PDF
+            doc = SimpleDocTemplate(pdf_filename, pagesize=letter,
+                                  rightMargin=72, leftMargin=72,
+                                  topMargin=72, bottomMargin=18)
+            
+            # Container for PDF elements
+            elements = []
+            
+            # Styles
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=16,
+                textColor='darkblue',
+                spaceAfter=30,
+                alignment=TA_LEFT
+            )
+            
+            heading_style = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading2'],
+                fontSize=14,
+                textColor='darkblue',
+                spaceAfter=12,
+                spaceBefore=12
+            )
+            
+            # Title
+            elements.append(Paragraph("AutoGrader Results", title_style))
+            elements.append(Spacer(1, 0.2*inch))
+            
+            # Student Information
+            info_text = f"""
+            <b>Student:</b> {self.student_name.get()}<br/>
+            <b>Assignment:</b> {self.selected_assignment.get()}<br/>
+            <b>File:</b> {os.path.basename(self.selected_file.get())}<br/>
+            <b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            """
+            elements.append(Paragraph(info_text, styles['Normal']))
+            elements.append(Spacer(1, 0.3*inch))
+            
+            # Student Code Section
+            elements.append(Paragraph("Student Code", heading_style))
+            with open(self.selected_file.get(), 'r', encoding='utf-8') as f:
+                code_content = f.read()
+            
+            code_style = ParagraphStyle(
+                'Code',
+                parent=styles['Code'],
+                fontSize=8,
+                leading=10,
+                leftIndent=10,
+                rightIndent=10
+            )
+            elements.append(Preformatted(code_content, code_style))
+            elements.append(Spacer(1, 0.3*inch))
+            
+            # Results Section
+            elements.append(Paragraph("AutoGrader Results", heading_style))
+            results_content = self.results_text.get(1.0, tk.END)
+            elements.append(Preformatted(results_content, code_style))
+            
+            # Build PDF
+            doc.build(elements)
+            
+            messagebox.showinfo("Success", f"PDF exported successfully to:\n{pdf_filename}")
+            self.status_var.set(f"PDF exported to {os.path.basename(pdf_filename)}")
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export PDF: {str(e)}")
     
     def clear_results(self):
         """Clear the results text area"""

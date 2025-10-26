@@ -17,38 +17,50 @@ A graphical user interface for the AutoGrader system that allows students to che
 ### 1. Required Python Packages
 
 ```bash
-pip install pandas openpyxl matplotlib numpy tkinter
+pip install pandas openpyxl matplotlib numpy reportlab
 ```
 
 Note: `tkinter` usually comes pre-installed with Python. If not:
 - **Windows/Mac**: Reinstall Python with tkinter enabled
 - **Linux**: `sudo apt-get install python3-tk`
 
+**ReportLab** is required for PDF export functionality. If not installed, the export button will show an error message.
+
 ### 2. Required Files
 
 Place these files in the same directory:
 - `autograder.py` - The core AutoGrader class
 - `autograder_gui.py` - The GUI application
-- `config.json` - Email configuration
+- `config.ini` - Configuration file (email and settings)
 - `assignments.xlsx` - Assignment tests configuration
 
 ## Setup Instructions
 
 ### Step 1: Create Configuration File
 
-Create a file named `config.json` with your email settings:
+Create a file named `config.ini` with your email settings:
 
-```json
-{
-  "email": {
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "sender_email": "your_email@gmail.com",
-    "sender_password": "your_app_password",
-    "instructor_email": "instructor@university.edu"
-  }
-}
+```ini
+[email]
+smtp_server = smtp.gmail.com
+smtp_port = 587
+sender_email = your_email@gmail.com
+sender_password = your_app_password
+instructor_email = instructor@university.edu
+
+[settings]
+# Set to true to show email error messages, false to hide them
+debug = true
 ```
+
+**Configuration Options:**
+
+- **smtp_server**: SMTP server address
+- **smtp_port**: SMTP port (usually 587 for TLS)
+- **sender_email**: Email address that sends the submissions
+- **sender_password**: Password or app-specific password
+- **instructor_email**: Email address to receive student submissions
+- **debug**: Set to `true` to show email errors, `false` to hide them (recommended for student-facing deployments)
 
 #### Gmail Setup (Recommended)
 
@@ -139,11 +151,29 @@ python autograder_gui.py
 
 1. **Enter Student Information**
    - Name (required)
-   - Email (required)
    - This information persists between submissions
 
 2. **Select Assignment**
    - Choose from the dropdown (populated from Excel sheets)
+
+3. **Select File**
+   - Click "Browse..." to select the student's Python file
+
+4. **Check Code**
+   - Click "Check Code" button
+   - Results appear in the text area below
+   - Email is automatically sent to the instructor email specified in config.ini
+
+5. **Export Results** (Optional)
+   - Click "Export to PDF" button
+   - Choose location to save PDF
+   - PDF includes student code and all test results
+
+6. **Submit Another Assignment**
+   - Select different assignment
+   - Select different file
+   - Click "Check Code" again
+   - No need to re-enter name Excel sheets)
 
 3. **Select File**
    - Click "Browse..." to select the student's Python file
@@ -205,21 +235,29 @@ pd.DataFrame(assignment8_tests).to_excel(
 
 When a student clicks "Check Code":
 
-1. **Email is sent to instructor** containing:
-   - Student name and email
+1. **Email is sent to instructor** (specified in config.ini) containing:
+   - Student name
    - Assignment name
    - Submission timestamp
    - Full test results
    - Student's code file (attached)
 
-2. **Email NOT sent if**:
-   - Email configuration is incomplete
+2. **Email subject format**: `Assignment Name, Student Name, YYYY-MM-DD, HH:MM:SS`
+   - Example: `Assignment 1 - Variables, John Smith, 2025-10-26, 14:30:45`
+
+3. **Email NOT sent if**:
+   - Email configuration is incomplete in config.ini
    - SMTP connection fails
-   - A message appears in results indicating the issue
+   - Debug mode determines if error message is shown to student
+
+4. **Debug Mode**:
+   - When `debug = true` in config.ini: Email errors are displayed to students
+   - When `debug = false` in config.ini: Email errors are hidden (recommended for production)
+   - Use `debug = false` to prevent students from seeing email configuration issues
 
 ## Troubleshooting
 
-### "config.json not found"
+### "config.ini not found"
 - Create the file in the same directory as `autograder_gui.py`
 - Use the template provided above
 
@@ -228,10 +266,15 @@ When a student clicks "Check Code":
 - Or manually create the Excel file with proper structure
 
 ### "Email failed to send"
-- Verify email credentials in `config.json`
+- Verify email credentials in `config.ini`
 - For Gmail: Use App Password, not regular password
 - Check internet connection
 - Verify SMTP server and port
+- Set `debug = true` in config.ini to see detailed error messages
+
+### "PDF export not available"
+- Install ReportLab: `pip install reportlab`
+- Restart the application after installation
 
 ### "Script execution failed"
 - Check student code for syntax errors
@@ -245,11 +288,17 @@ When a student clicks "Check Code":
 ### Colors not showing in results
 - This is normal - colors only appear in the GUI
 - Emailed results show PASS/FAIL text instead
+- PDF exports show text without colors
 
 ### Timeout errors
 - Increase timeout in AutoGrader initialization
-- Default is 10 seconds, can increase to 15-30 for complex code
+- Default is 15 seconds, can increase to 30-60 for complex code
 - Edit line in `autograder_gui.py`: `self.grader = AutoGrader(filepath, timeout=30)`
+
+### Assignment 6 error: "'bool' object has no attribute 'lower'"
+- This has been fixed in the updated code
+- The error was in parsing the `case_sensitive` parameter
+- Update to the latest version of `autograder_gui.py`
 
 ## Customization
 
