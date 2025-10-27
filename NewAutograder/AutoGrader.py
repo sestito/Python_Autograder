@@ -768,6 +768,345 @@ class AutoGrader:
         
         return all_passed
     
+    def check_variable_value(
+        self, 
+        var_name: str, 
+        expected_value: Any, 
+        tolerance: float = 1e-6
+    ) -> bool:
+        """
+        Check if a variable has the expected value after execution.
+        
+        Args:
+            var_name: Name of the variable to check
+            expected_value: Expected value
+            tolerance: Tolerance for floating point comparison
+            
+        Returns:
+            True if the check passes, False otherwise.
+        """
+        if not self._execution_successful:
+            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            return False
+        
+        if var_name not in self.captured_vars:
+            self._log_result(False, f"Variable '{var_name}' not found")
+            return False
+        
+        actual_value = self.captured_vars[var_name]
+        
+        # Handle None
+        if actual_value is None and expected_value is None:
+            self._log_result(True, f"'{var_name}' is None as expected")
+            return True
+        
+        # Numeric comparison with tolerance
+        if isinstance(expected_value, (int, float)) and isinstance(actual_value, (int, float)):
+            if abs(actual_value - expected_value) <= tolerance:
+                self._log_result(True, f"'{var_name}' = {actual_value} (expected {expected_value})")
+                return True
+            else:
+                self._log_result(False, f"'{var_name}' = {actual_value}, expected {expected_value}")
+                return False
+        
+        # List/tuple comparison with tolerance
+        if isinstance(expected_value, (list, tuple)) and isinstance(actual_value, (list, tuple)):
+            try:
+                import numpy as np
+                if np.allclose(actual_value, expected_value, atol=tolerance):
+                    self._log_result(True, f"'{var_name}' matches expected list/array")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' does not match expected list/array")
+                    return False
+            except:
+                # Fallback to exact comparison if numpy comparison fails
+                if actual_value == expected_value:
+                    self._log_result(True, f"'{var_name}' matches expected list")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' does not match expected list")
+                    return False
+        
+        # NumPy array comparison
+        try:
+            import numpy as np
+            if isinstance(expected_value, np.ndarray) or isinstance(actual_value, np.ndarray):
+                if np.allclose(actual_value, expected_value, atol=tolerance):
+                    self._log_result(True, f"'{var_name}' matches expected array")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' does not match expected array")
+                    return False
+        except:
+            pass
+        
+        # Exact comparison
+        if actual_value == expected_value:
+            self._log_result(True, f"'{var_name}' = {repr(actual_value)}")
+            return True
+        else:
+            self._log_result(False, f"'{var_name}' = {repr(actual_value)}, expected {repr(expected_value)}")
+            return False
+    
+    def check_list_equals(
+        self,
+        var_name: str,
+        expected_list: list,
+        order_matters: bool = True,
+        tolerance: float = 1e-6
+    ) -> bool:
+        """
+        Check if a variable contains a list equal to the expected list.
+        
+        Args:
+            var_name: Name of the variable
+            expected_list: Expected list
+            order_matters: If True, order must match. If False, only elements need to match.
+            tolerance: Tolerance for numeric comparisons
+            
+        Returns:
+            True if the check passes, False otherwise.
+        """
+        if not self._execution_successful:
+            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            return False
+        
+        if var_name not in self.captured_vars:
+            self._log_result(False, f"Variable '{var_name}' not found")
+            return False
+        
+        actual_value = self.captured_vars[var_name]
+        
+        if not isinstance(actual_value, (list, tuple)):
+            self._log_result(False, f"'{var_name}' is not a list (type: {type(actual_value).__name__})")
+            return False
+        
+        if order_matters:
+            # Check with order
+            try:
+                import numpy as np
+                if np.allclose(actual_value, expected_list, atol=tolerance):
+                    self._log_result(True, f"'{var_name}' equals expected list")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' does not equal expected list")
+                    return False
+            except:
+                if list(actual_value) == list(expected_list):
+                    self._log_result(True, f"'{var_name}' equals expected list")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' does not equal expected list")
+                    return False
+        else:
+            # Check without order (set comparison)
+            if sorted(actual_value) == sorted(expected_list):
+                self._log_result(True, f"'{var_name}' contains expected elements (order not checked)")
+                return True
+            else:
+                self._log_result(False, f"'{var_name}' does not contain expected elements")
+                return False
+    
+    def check_array_equals(
+        self,
+        var_name: str,
+        expected_array,
+        tolerance: float = 1e-6
+    ) -> bool:
+        """
+        Check if a variable contains a NumPy array equal to the expected array.
+        
+        Args:
+            var_name: Name of the variable
+            expected_array: Expected array (can be list or numpy array)
+            tolerance: Tolerance for numeric comparisons
+            
+        Returns:
+            True if the check passes, False otherwise.
+        """
+        if not self._execution_successful:
+            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            return False
+        
+        if var_name not in self.captured_vars:
+            self._log_result(False, f"Variable '{var_name}' not found")
+            return False
+        
+        actual_value = self.captured_vars[var_name]
+        
+        try:
+            import numpy as np
+            
+            # Convert to numpy arrays if needed
+            if not isinstance(actual_value, np.ndarray):
+                try:
+                    actual_value = np.array(actual_value)
+                except:
+                    self._log_result(False, f"'{var_name}' cannot be converted to array")
+                    return False
+            
+            if not isinstance(expected_array, np.ndarray):
+                expected_array = np.array(expected_array)
+            
+            # Check shape
+            if actual_value.shape != expected_array.shape:
+                self._log_result(False, 
+                    f"'{var_name}' shape {actual_value.shape} != expected shape {expected_array.shape}")
+                return False
+            
+            # Check values
+            if np.allclose(actual_value, expected_array, atol=tolerance):
+                self._log_result(True, f"'{var_name}' array equals expected array")
+                return True
+            else:
+                self._log_result(False, f"'{var_name}' array does not equal expected array")
+                return False
+                
+        except ImportError:
+            self._log_result(False, "NumPy not available for array comparison")
+            return False
+        except Exception as e:
+            self._log_result(False, f"Error comparing arrays: {str(e)}")
+            return False
+    
+    def compare_with_solution(
+        self,
+        solution_file: str,
+        variables_to_compare: list,
+        tolerance: float = 1e-6
+    ) -> bool:
+        """
+        Execute a solution file and compare specified variables with student's values.
+        
+        Args:
+            solution_file: Path to the solution Python file
+            variables_to_compare: List of variable names to compare
+            tolerance: Tolerance for numeric comparisons
+            
+        Returns:
+            True if all variables match, False otherwise.
+        """
+        if not self._execution_successful:
+            self._log_result(False, "Cannot compare: student script not executed")
+            return False
+        
+        if not os.path.exists(solution_file):
+            self._log_result(False, f"Solution file not found: {solution_file}")
+            return False
+        
+        try:
+            # Read solution file
+            with open(solution_file, 'r', encoding='utf-8') as f:
+                solution_content = f.read()
+            
+            # Execute solution
+            safe_builtins = self._get_safe_builtins()
+            solution_namespace = {'__builtins__': safe_builtins}
+            
+            def execute_solution():
+                exec(solution_content, solution_namespace, solution_namespace)
+            
+            run_with_timeout(execute_solution, timeout=self.timeout)
+            
+            # Compare variables
+            all_match = True
+            for var_name in variables_to_compare:
+                # Check if variable exists in both
+                if var_name not in self.captured_vars:
+                    self._log_result(False, f"Variable '{var_name}' not found in student code")
+                    all_match = False
+                    continue
+                
+                if var_name not in solution_namespace:
+                    self._log_result(False, f"Variable '{var_name}' not found in solution")
+                    all_match = False
+                    continue
+                
+                student_value = self.captured_vars[var_name]
+                solution_value = solution_namespace[var_name]
+                
+                # Compare values
+                match = self._compare_values(var_name, student_value, solution_value, tolerance)
+                if not match:
+                    all_match = False
+            
+            return all_match
+            
+        except TimeoutException:
+            self._log_result(False, "Solution execution timed out")
+            return False
+        except Exception as e:
+            self._log_result(False, f"Error executing solution: {str(e)}")
+            return False
+    
+    def _compare_values(self, var_name: str, student_value: Any, solution_value: Any, tolerance: float) -> bool:
+        """
+        Internal method to compare two values with appropriate logic.
+        
+        Args:
+            var_name: Variable name (for logging)
+            student_value: Student's value
+            solution_value: Solution value
+            tolerance: Tolerance for numeric comparisons
+            
+        Returns:
+            True if values match, False otherwise.
+        """
+        try:
+            import numpy as np
+            
+            # NumPy array comparison
+            if isinstance(solution_value, np.ndarray) or isinstance(student_value, np.ndarray):
+                try:
+                    if np.allclose(student_value, solution_value, atol=tolerance):
+                        self._log_result(True, f"'{var_name}' matches solution")
+                        return True
+                    else:
+                        self._log_result(False, f"'{var_name}' does not match solution")
+                        return False
+                except:
+                    pass
+        except ImportError:
+            pass
+        
+        # Numeric comparison
+        if isinstance(solution_value, (int, float)) and isinstance(student_value, (int, float)):
+            if abs(student_value - solution_value) <= tolerance:
+                self._log_result(True, f"'{var_name}' = {student_value} (matches solution)")
+                return True
+            else:
+                self._log_result(False, 
+                    f"'{var_name}' = {student_value}, expected {solution_value}")
+                return False
+        
+        # List/tuple comparison
+        if isinstance(solution_value, (list, tuple)) and isinstance(student_value, (list, tuple)):
+            try:
+                import numpy as np
+                if np.allclose(student_value, solution_value, atol=tolerance):
+                    self._log_result(True, f"'{var_name}' list matches solution")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' list does not match solution")
+                    return False
+            except:
+                if student_value == solution_value:
+                    self._log_result(True, f"'{var_name}' list matches solution")
+                    return True
+                else:
+                    self._log_result(False, f"'{var_name}' list does not match solution")
+                    return False
+        
+        # Exact comparison
+        if student_value == solution_value:
+            self._log_result(True, f"'{var_name}' matches solution")
+            return True
+        else:
+            self._log_result(False, 
+                f"'{var_name}' = {repr(student_value)}, expected {repr(solution_value)}")
+            return False
+
     # ======================== PLOT CHECKING ========================
     
     def check_plot_created(self) -> bool:

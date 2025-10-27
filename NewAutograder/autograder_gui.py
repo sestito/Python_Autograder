@@ -424,6 +424,41 @@ class AutoGraderGUI:
                         expected_count=self.parse_int(test.get('expected_count'))
                     )
                 
+                elif test_type == 'list_equals':
+                    expected_list = self.parse_value(test.get('expected_list'))
+                    order_matters = self.parse_bool(test.get('order_matters'))
+                    if order_matters is None:
+                        order_matters = True
+                    
+                    self.grader.check_list_equals(
+                        test['variable_name'],
+                        expected_list,
+                        order_matters=order_matters,
+                        tolerance=float(test.get('tolerance', 1e-6))
+                    )
+                
+                elif test_type == 'array_equals':
+                    expected_array = self.parse_value(test.get('expected_array'))
+                    self.grader.check_array_equals(
+                        test['variable_name'],
+                        expected_array,
+                        tolerance=float(test.get('tolerance', 1e-6))
+                    )
+                
+                elif test_type == 'compare_solution':
+                    solution_file = test.get('solution_file')
+                    variables_to_compare = self.parse_value(test.get('variables_to_compare'))
+                    
+                    if isinstance(variables_to_compare, str):
+                        # If it's a comma-separated string, split it
+                        variables_to_compare = [v.strip() for v in variables_to_compare.split(',')]
+                    
+                    self.grader.compare_with_solution(
+                        solution_file,
+                        variables_to_compare,
+                        tolerance=float(test.get('tolerance', 1e-6))
+                    )
+                
             except Exception as e:
                 self.results_text.insert(tk.END, f"✗ Error in test: {str(e)}\n", 'fail')
     

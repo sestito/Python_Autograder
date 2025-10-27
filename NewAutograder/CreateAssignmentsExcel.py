@@ -217,6 +217,59 @@ assignment7_tests = [
     }
 ]
 
+# ===== ASSIGNMENT 8: Lists and Arrays =====
+assignment8_tests = [
+    {
+        'test_type': 'list_equals',
+        'variable_name': 'my_list',
+        'expected_list': '[1, 2, 3, 4, 5]',
+        'order_matters': 'true',
+        'tolerance': 0.0,
+        'description': 'List should equal [1, 2, 3, 4, 5] with order'
+    },
+    {
+        'test_type': 'list_equals',
+        'variable_name': 'sorted_numbers',
+        'expected_list': '[10, 20, 30, 40]',
+        'order_matters': 'false',
+        'tolerance': 0.0,
+        'description': 'Should contain [10, 20, 30, 40] (order not important)'
+    },
+    {
+        'test_type': 'array_equals',
+        'variable_name': 'data_array',
+        'expected_array': '[1.5, 2.5, 3.5, 4.5]',
+        'tolerance': 0.01,
+        'description': 'NumPy array should match expected values'
+    },
+    {
+        'test_type': 'variable_type',
+        'variable_name': 'my_list',
+        'expected_value': 'list',
+        'description': 'my_list should be a list'
+    }
+]
+
+# ===== ASSIGNMENT 9: Solution Comparison =====
+assignment9_tests = [
+    {
+        'test_type': 'compare_solution',
+        'solution_file': 'solutions/assignment9_solution.py',
+        'variables_to_compare': 'result, sum_total, average',
+        'tolerance': 0.001,
+        'description': 'Compare key variables with solution file'
+    },
+    {
+        'test_type': 'function_exists',
+        'function_name': 'process_data',
+        'description': 'Function process_data should exist'
+    },
+    {
+        'test_type': 'for_loop_used',
+        'description': 'Should use a for loop'
+    }
+]
+
 # Create Excel file with multiple sheets
 with pd.ExcelWriter('assignments.xlsx', engine='openpyxl') as writer:
     pd.DataFrame(assignment1_tests).to_excel(writer, sheet_name='Assignment 1 - Variables', index=False)
