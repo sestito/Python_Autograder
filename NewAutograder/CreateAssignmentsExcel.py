@@ -279,6 +279,8 @@ with pd.ExcelWriter('assignments.xlsx', engine='openpyxl') as writer:
     pd.DataFrame(assignment5_tests).to_excel(writer, sheet_name='Assignment 5 - Plotting', index=False)
     pd.DataFrame(assignment6_tests).to_excel(writer, sheet_name='Assignment 6 - Strings', index=False)
     pd.DataFrame(assignment7_tests).to_excel(writer, sheet_name='Assignment 7 - While Loops', index=False)
+    pd.DataFrame(assignment8_tests).to_excel(writer, sheet_name='Assignment 8 - Lists and Arrays', index=False)
+    pd.DataFrame(assignment9_tests).to_excel(writer, sheet_name='Assignment 9 - Solution Comparison', index=False)
 
 print("✓ assignments.xlsx created successfully!")
 print("\nCreated assignments:")

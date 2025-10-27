@@ -252,563 +252,6 @@ class AutoGrader:
                 self._log_result(False, f"'{var_name}' = {actual_value}, expected {expected_value}")
                 return False
         
-        # List/array comparison with tolerance
-        if isinstance(expected_value, (list, tuple)) and isinstance(actual_value, (list, tuple)):
-            try:
-                import numpy as np
-                if np.allclose(actual_value, expected_value, atol=tolerance):
-                    self._log_result(True, f"'{var_name}' matches expected list/array")
-                    return True
-                else:
-                    self._log_result(False, f"'{var_name}' does not match expected list/array")
-                    return False
-            except:
-                pass
-        
-        # Exact comparison
-        if actual_value == expected_value:
-            self._log_result(True, f"'{var_name}' = {repr(actual_value)}")
-            return True
-        else:
-            self._log_result(False, f"'{var_name}' = {repr(actual_value)}, expected {repr(expected_value)}")
-            return False
-    
-    def check_variable_type(self, var_name: str, expected_type: type) -> bool:
-        """
-        Check if a variable has the expected type.
-        
-        Args:
-            var_name: Name of the variable
-            expected_type: Expected type (e.g., int, str, list)
-            
-        Returns:
-            True if the check passes, False otherwise.
-        """
-        if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
-            return False
-        
-        actual_type = type(self.captured_vars[var_name])
-        if isinstance(self.captured_vars[var_name], expected_type):
-            self._log_result(True, f"'{var_name}' is of type {expected_type.__name__}")
-            return True
-        else:
-            self._log_result(False, f"'{var_name}' is {actual_type.__name__}, expected {expected_type.__name__}")
-            return False
-    
-    # ======================== FUNCTION CHECKING ========================
-    
-    def check_function_exists(self, func_name: str) -> bool:
-        """
-        Check if a function is defined in the code (static analysis).
-        
-        Args:
-            func_name: Name of the function
-            
-        Returns:
-            True if the function exists, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        for node in ast.walk(self._ast_tree):
-            if isinstance(node, ast.FunctionDef) and node.name == func_name:
-                self._log_result(True, f"Function '{func_name}' is defined")
-                return True
-        
-        self._log_result(False, f"Function '{func_name}' not found")
-        return False
-    
-    def check_function_called(self, func_name: str) -> bool:
-        """
-        Check if a function is called in the code (static analysis).
-        
-        Args:
-            func_name: Name of the function (can include module, e.g., 'np.mean', 'plt.plot')
-            
-        Returns:
-            True if the function is called, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        # Split function name to handle module.function notation
-        parts = func_name.split('.')
-        
-        for node in ast.walk(self._ast_tree):
-            if isinstance(node, ast.Call):
-                # Handle simple function calls: func()
-                if isinstance(node.func, ast.Name) and node.func.id == func_name:
-                    self._log_result(True, f"Function '{func_name}' is called")
-                    return True
-                
-                # Handle attribute calls: module.func() or obj.method()
-                if isinstance(node.func, ast.Attribute):
-                    if len(parts) == 2:
-                        # Check for module.function pattern (e.g., np.mean)
-                        if isinstance(node.func.value, ast.Name):
-                            if node.func.value.id == parts[0] and node.func.attr == parts[1]:
-                                self._log_result(True, f"Function '{func_name}' is called")
-                                return True
-                    elif len(parts) == 1:
-                        # Just check the method/attribute name
-                        if node.func.attr == parts[0]:
-                            self._log_result(True, f"Function/method '{func_name}' is called")
-                            return True
-                
-                # Handle nested attributes: numpy.random.randint()
-                if len(parts) > 2 and isinstance(node.func, ast.Attribute):
-                    # Reconstruct the full call path
-                    call_parts = []
-                    current = node.func
-                    while isinstance(current, ast.Attribute):
-                        call_parts.insert(0, current.attr)
-                        current = current.value
-                    if isinstance(current, ast.Name):
-                        call_parts.insert(0, current.id)
-                    
-                    if '.'.join(call_parts) == func_name:
-                        self._log_result(True, f"Function '{func_name}' is called")
-                        return True
-        
-        self._log_result(False, f"Function '{func_name}' is not called")
-        return False
-    
-    def check_code_contains(self, phrase: str, case_sensitive: bool = True) -> bool:
-        """
-        Check if a specific phrase/pattern appears in the code.
-        
-        Args:
-            phrase: The phrase to search for (e.g., '+=', '%0.3f', 'for i in range')
-            case_sensitive: Whether the search should be case sensitive (default: True)
-            
-        Returns:
-            True if the phrase is found, False otherwise.
-        """
-        if self._content is None:
-            self._log_result(False, "No code content available")
-            return False
-        
-        search_content = self._content
-        search_phrase = phrase
-        
-        if not case_sensitive:
-            search_content = search_content.lower()
-            search_phrase = search_phrase.lower()
-        
-        if search_phrase in search_content:
-            self._log_result(True, f"Code contains '{phrase}'")
-            return True
-        else:
-            self._log_result(False, f"Code does not contain '{phrase}'")
-            return False
-    
-    def check_for_loop_used(self) -> bool:
-        """
-        Check if a for loop is used in the code.
-        
-        Returns:
-            True if a for loop is found, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        for node in ast.walk(self._ast_tree):
-            if isinstance(node, ast.For):
-                self._log_result(True, "For loop is used")
-                return True
-        
-        self._log_result(False, "For loop is not used")
-        return False
-    
-    def check_while_loop_used(self) -> bool:
-        """
-        Check if a while loop is used in the code.
-        
-        Returns:
-            True if a while loop is found, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        for node in ast.walk(self._ast_tree):
-            if isinstance(node, ast.While):
-                self._log_result(True, "While loop is used")
-                return True
-        
-        self._log_result(False, "While loop is not used")
-        return False
-    
-    def check_if_statement_used(self) -> bool:
-        """
-        Check if an if statement is used in the code.
-        
-        Returns:
-            True if an if statement is found, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        for node in ast.walk(self._ast_tree):
-            if isinstance(node, ast.If):
-                self._log_result(True, "If statement is used")
-                return True
-        
-        self._log_result(False, "If statement is not used")
-        return False
-    
-    def count_loop_iterations(
-        self, 
-        loop_variable: str,
-        expected_count: Optional[int] = None,
-        tolerance: int = 0
-    ) -> Optional[int]:
-        """
-        Count how many times a loop ran by checking the final value of a loop counter variable.
-        Student code must create a counter variable that increments each iteration.
-        
-        Args:
-            loop_variable: Name of the counter variable to check
-            expected_count: Expected number of iterations (None to just return count)
-            tolerance: Allowed difference from expected count (default: 0)
-            
-        Returns:
-            The value of the counter variable, or None if not found.
-            
-        Example student code:
-            count = 0
-            for i in range(10):
-                count += 1
-            # count will be 10
-        """
-        if not self._execution_successful:
-            self._log_result(False, f"Cannot count iterations: script not executed")
-            return None
-        
-        if loop_variable not in self.captured_vars:
-            self._log_result(False, f"Loop counter variable '{loop_variable}' not found")
-            return None
-        
-        actual_count = self.captured_vars[loop_variable]
-        
-        if not isinstance(actual_count, (int, float)):
-            self._log_result(False, f"Variable '{loop_variable}' is not a number (type: {type(actual_count).__name__})")
-            return None
-        
-        actual_count = int(actual_count)
-        
-        if expected_count is not None:
-            if abs(actual_count - expected_count) <= tolerance:
-                self._log_result(True, f"Loop ran {actual_count} times (expected {expected_count})")
-            else:
-                self._log_result(False, f"Loop ran {actual_count} times, expected {expected_count}")
-        else:
-            self._log_result(True, f"Loop counter '{loop_variable}' = {actual_count}")
-        
-        return actual_count
-    
-    def instrument_and_count_loops(self, expected_iterations: Optional[Dict[str, int]] = None) -> Dict[str, int]:
-        """
-        Advanced method: Automatically instrument the code to count all loop iterations.
-        This modifies the code before execution to add counters.
-        
-        Args:
-            expected_iterations: Dictionary mapping loop identifiers to expected counts
-                                Example: {'for_loop_1': 10, 'while_loop_1': 5}
-            
-        Returns:
-            Dictionary with loop iteration counts.
-            
-        Note: This is an advanced feature that modifies the student's code temporarily.
-        """
-        if self._content is None or self._ast_tree is None:
-            self._log_result(False, "Cannot instrument code: content not loaded")
-            return {}
-        
-        # Parse the code
-        try:
-            tree = ast.parse(self._content)
-        except:
-            self._log_result(False, "Cannot parse code for instrumentation")
-            return {}
-        
-        # Add instrumentation
-        loop_counts = {}
-        counter_name_base = '__loop_counter_'
-        loop_index = 0
-        
-        class LoopInstrumenter(ast.NodeTransformer):
-            def __init__(self):
-                self.loop_index = 0
-            
-            def visit_For(self, node):
-                # Create unique counter name
-                counter_name = f'{counter_name_base}{self.loop_index}'
-                self.loop_index += 1
-                
-                # Create counter initialization: __loop_counter_N = 0
-                init = ast.Assign(
-                    targets=[ast.Name(id=counter_name, ctx=ast.Store())],
-                    value=ast.Constant(value=0)
-                )
-                
-                # Create counter increment: __loop_counter_N += 1
-                increment = ast.AugAssign(
-                    target=ast.Name(id=counter_name, ctx=ast.Store()),
-                    op=ast.Add(),
-                    value=ast.Constant(value=1)
-                )
-                
-                # Add increment as first statement in loop body
-                node.body.insert(0, increment)
-                
-                # Visit child nodes
-                self.generic_visit(node)
-                
-                # Return both initialization and modified loop
-                return [init, node]
-            
-            def visit_While(self, node):
-                # Create unique counter name
-                counter_name = f'{counter_name_base}{self.loop_index}'
-                self.loop_index += 1
-                
-                # Create counter initialization
-                init = ast.Assign(
-                    targets=[ast.Name(id=counter_name, ctx=ast.Store())],
-                    value=ast.Constant(value=0)
-                )
-                
-                # Create counter increment
-                increment = ast.AugAssign(
-                    target=ast.Name(id=counter_name, ctx=ast.Store()),
-                    op=ast.Add(),
-                    value=ast.Constant(value=1)
-                )
-                
-                # Add increment as first statement in loop body
-                node.body.insert(0, increment)
-                
-                # Visit child nodes
-                self.generic_visit(node)
-                
-                # Return both initialization and modified loop
-                return [init, node]
-        
-        # Transform the AST
-        instrumenter = LoopInstrumenter()
-        instrumented_tree = instrumenter.visit(tree)
-        ast.fix_missing_locations(instrumented_tree)
-        
-        # Compile and execute the instrumented code
-        try:
-            compiled_code = compile(instrumented_tree, '<instrumented>', 'exec')
-            safe_builtins = self._get_safe_builtins()
-            namespace = {'__builtins__': safe_builtins}
-            
-            def execute_code():
-                exec(compiled_code, namespace, namespace)
-            
-            run_with_timeout(execute_code, timeout=self.timeout)
-            
-            # Extract loop counters
-            for i in range(instrumenter.loop_index):
-                counter_name = f'{counter_name_base}{i}'
-                if counter_name in namespace:
-                    loop_id = f'loop_{i}'
-                    count = namespace[counter_name]
-                    loop_counts[loop_id] = count
-                    
-                    # Check against expected if provided
-                    if expected_iterations and loop_id in expected_iterations:
-                        expected = expected_iterations[loop_id]
-                        if count == expected:
-                            self._log_result(True, f"Loop {i} ran {count} times (expected {expected})")
-                        else:
-                            self._log_result(False, f"Loop {i} ran {count} times, expected {expected}")
-                    else:
-                        self._log_result(True, f"Loop {i} ran {count} times")
-            
-            return loop_counts
-            
-        except Exception as e:
-            self._log_result(False, f"Error executing instrumented code: {type(e).__name__}: {e}")
-            return {}
-    
-    def check_operator_used(self, operator: str) -> bool:
-        """
-        Check if a specific operator is used in the code using AST analysis.
-        More accurate than string matching for operators.
-        
-        Args:
-            operator: The operator to check for (e.g., '+=', '-=', '==', '!=', '//', '**')
-            
-        Returns:
-            True if the operator is used, False otherwise.
-        """
-        if self._ast_tree is None:
-            self._log_result(False, "AST not available for static analysis")
-            return False
-        
-        # Map operator strings to AST node types
-        operator_map = {
-            '+=': ast.Add,      '-=': ast.Sub,      '*=': ast.Mult,
-            '/=': ast.Div,      '//=': ast.FloorDiv, '%=': ast.Mod,
-            '**=': ast.Pow,     '&=': ast.BitAnd,   '|=': ast.BitOr,
-            '^=': ast.BitXor,   '>>=': ast.RShift,  '<<=': ast.LShift,
-            '+': ast.Add,       '-': ast.Sub,       '*': ast.Mult,
-            '/': ast.Div,       '//': ast.FloorDiv, '%': ast.Mod,
-            '**': ast.Pow,      '&': ast.BitAnd,    '|': ast.BitOr,
-            '^': ast.BitXor,    '>>': ast.RShift,   '<<': ast.LShift,
-            '==': ast.Eq,       '!=': ast.NotEq,    '<': ast.Lt,
-            '<=': ast.LtE,      '>': ast.Gt,        '>=': ast.GtE,
-            'is': ast.Is,       'is not': ast.IsNot, 'in': ast.In,
-            'not in': ast.NotIn, 'and': ast.And,    'or': ast.Or,
-            'not': ast.Not,
-        }
-        
-        if operator not in operator_map:
-            # If not in map, fall back to string search
-            return self.check_code_contains(operator)
-        
-        target_op = operator_map[operator]
-        
-        for node in ast.walk(self._ast_tree):
-            # Check augmented assignment (+=, -=, etc.)
-            if operator in ['+=', '-=', '*=', '/=', '//=', '%=', '**=', '&=', '|=', '^=', '>>=', '<<=']:
-                if isinstance(node, ast.AugAssign) and isinstance(node.op, target_op):
-                    self._log_result(True, f"Operator '{operator}' is used")
-                    return True
-            
-            # Check binary operations (+, -, *, etc.)
-            elif isinstance(node, ast.BinOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
-                return True
-            
-            # Check comparison operations (==, !=, <, etc.)
-            elif isinstance(node, ast.Compare):
-                for op in node.ops:
-                    if isinstance(op, target_op):
-                        self._log_result(True, f"Operator '{operator}' is used")
-                        return True
-            
-            # Check boolean operations (and, or)
-            elif isinstance(node, ast.BoolOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
-                return True
-            
-            # Check unary operations (not)
-            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
-                return True
-        
-        self._log_result(False, f"Operator '{operator}' is not used")
-        return False
-    
-    def test_function(
-        self, 
-        func_name: str, 
-        test_cases: List[Dict[str, Any]]
-    ) -> bool:
-        """
-        Test a function with multiple test cases.
-        
-        Args:
-            func_name: Name of the function to test
-            test_cases: List of test case dictionaries with 'args', 'kwargs', 'expected'
-                       Example: [{'args': [5, 3], 'expected': 8}, 
-                                {'args': [10], 'kwargs': {'y': 2}, 'expected': 12}]
-            
-        Returns:
-            True if all test cases pass, False otherwise.
-        """
-        if not self._execution_successful:
-            self._log_result(False, f"Cannot test '{func_name}': script not executed")
-            return False
-        
-        if func_name not in self.execution_namespace:
-            self._log_result(False, f"Function '{func_name}' not found in namespace")
-            return False
-        
-        func = self.execution_namespace[func_name]
-        if not callable(func):
-            self._log_result(False, f"'{func_name}' is not a function")
-            return False
-        
-        all_passed = True
-        for i, test_case in enumerate(test_cases):
-            args = test_case.get('args', [])
-            kwargs = test_case.get('kwargs', {})
-            expected = test_case.get('expected')
-            tolerance = test_case.get('tolerance', 1e-6)
-            
-            try:
-                result = func(*args, **kwargs)
-                
-                # Compare result with expected
-                if isinstance(expected, (int, float)) and isinstance(result, (int, float)):
-                    passed = abs(result - expected) <= tolerance
-                else:
-                    passed = result == expected
-                
-                if passed:
-                    self._log_result(True, f"{func_name}{args} = {result}")
-                else:
-                    self._log_result(False, f"{func_name}{args} = {result}, expected {expected}")
-                    all_passed = False
-                    
-            except Exception as e:
-                self._log_result(False, f"{func_name}{args} raised {type(e).__name__}: {e}")
-                all_passed = False
-        
-        return all_passed
-    
-    def check_variable_value(
-        self, 
-        var_name: str, 
-        expected_value: Any, 
-        tolerance: float = 1e-6
-    ) -> bool:
-        """
-        Check if a variable has the expected value after execution.
-        
-        Args:
-            var_name: Name of the variable to check
-            expected_value: Expected value
-            tolerance: Tolerance for floating point comparison
-            
-        Returns:
-            True if the check passes, False otherwise.
-        """
-        if not self._execution_successful:
-            self._log_result(False, f"Cannot check '{var_name}': script not executed")
-            return False
-        
-        if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
-            return False
-        
-        actual_value = self.captured_vars[var_name]
-        
-        # Handle None
-        if actual_value is None and expected_value is None:
-            self._log_result(True, f"'{var_name}' is None as expected")
-            return True
-        
-        # Numeric comparison with tolerance
-        if isinstance(expected_value, (int, float)) and isinstance(actual_value, (int, float)):
-            if abs(actual_value - expected_value) <= tolerance:
-                self._log_result(True, f"'{var_name}' = {actual_value} (expected {expected_value})")
-                return True
-            else:
-                self._log_result(False, f"'{var_name}' = {actual_value}, expected {expected_value}")
-                return False
-        
         # List/tuple comparison with tolerance
         if isinstance(expected_value, (list, tuple)) and isinstance(actual_value, (list, tuple)):
             try:
@@ -849,6 +292,29 @@ class AutoGrader:
             self._log_result(False, f"'{var_name}' = {repr(actual_value)}, expected {repr(expected_value)}")
             return False
     
+    def check_variable_type(self, var_name: str, expected_type: type) -> bool:
+        """
+        Check if a variable has the expected type.
+        
+        Args:
+            var_name: Name of the variable
+            expected_type: Expected type (e.g., int, str, list)
+            
+        Returns:
+            True if the check passes, False otherwise.
+        """
+        if var_name not in self.captured_vars:
+            self._log_result(False, f"Variable '{var_name}' not found")
+            return False
+        
+        actual_type = type(self.captured_vars[var_name])
+        if isinstance(self.captured_vars[var_name], expected_type):
+            self._log_result(True, f"'{var_name}' is of type {expected_type.__name__}")
+            return True
+        else:
+            self._log_result(False, f"'{var_name}' is {actual_type.__name__}, expected {expected_type.__name__}")
+            return False
+    
     def check_list_equals(
         self,
         var_name: str,
@@ -878,8 +344,15 @@ class AutoGrader:
         
         actual_value = self.captured_vars[var_name]
         
-        if not isinstance(actual_value, (list, tuple)):
-            self._log_result(False, f"'{var_name}' is not a list (type: {type(actual_value).__name__})")
+        # Check if it's a list, tuple, or numpy array
+        try:
+            import numpy as np
+            is_array_like = isinstance(actual_value, (list, tuple, np.ndarray))
+        except ImportError:
+            is_array_like = isinstance(actual_value, (list, tuple))
+        
+        if not is_array_like:
+            self._log_result(False, f"'{var_name}' is not a list/array (type: {type(actual_value).__name__})")
             return False
         
         if order_matters:
@@ -901,7 +374,7 @@ class AutoGrader:
                     return False
         else:
             # Check without order (set comparison)
-            if sorted(actual_value) == sorted(expected_list):
+            if sorted(list(actual_value)) == sorted(list(expected_list)):
                 self._log_result(True, f"'{var_name}' contains expected elements (order not checked)")
                 return True
             else:
@@ -939,12 +412,15 @@ class AutoGrader:
             import numpy as np
             
             # Convert to numpy arrays if needed
-            if not isinstance(actual_value, np.ndarray):
+            if isinstance(actual_value, (list, tuple)):
                 try:
                     actual_value = np.array(actual_value)
                 except:
                     self._log_result(False, f"'{var_name}' cannot be converted to array")
                     return False
+            elif not isinstance(actual_value, np.ndarray):
+                self._log_result(False, f"'{var_name}' is not a list or array (type: {type(actual_value).__name__})")
+                return False
             
             if not isinstance(expected_array, np.ndarray):
                 expected_array = np.array(expected_array)
@@ -1106,7 +582,145 @@ class AutoGrader:
             self._log_result(False, 
                 f"'{var_name}' = {repr(student_value)}, expected {repr(solution_value)}")
             return False
-
+    
+    # ======================== FUNCTION CHECKING ========================
+    
+    def check_function_exists(self, func_name: str) -> bool:
+        """
+        Check if a function is defined in the code (static analysis).
+        
+        Args:
+            func_name: Name of the function
+            
+        Returns:
+            True if the function exists, False otherwise.
+        """
+        if self._ast_tree is None:
+            self._log_result(False, "AST not available for static analysis")
+            return False
+        
+        for node in ast.walk(self._ast_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == func_name:
+                self._log_result(True, f"Function '{func_name}' is defined")
+                return True
+        
+        self._log_result(False, f"Function '{func_name}' not found")
+        return False
+    
+    def check_function_called(self, func_name: str) -> bool:
+        """
+        Check if a function is called in the code (static analysis).
+        
+        Args:
+            func_name: Name of the function (can include module, e.g., 'np.mean', 'plt.plot')
+            
+        Returns:
+            True if the function is called, False otherwise.
+        """
+        if self._ast_tree is None:
+            self._log_result(False, "AST not available for static analysis")
+            return False
+        
+        # Split function name to handle module.function notation
+        parts = func_name.split('.')
+        
+        for node in ast.walk(self._ast_tree):
+            if isinstance(node, ast.Call):
+                # Handle simple function calls: func()
+                if isinstance(node.func, ast.Name) and node.func.id == func_name:
+                    self._log_result(True, f"Function '{func_name}' is called")
+                    return True
+                
+                # Handle attribute calls: module.func() or obj.method()
+                if isinstance(node.func, ast.Attribute):
+                    if len(parts) == 2:
+                        # Check for module.function pattern (e.g., np.mean)
+                        if isinstance(node.func.value, ast.Name):
+                            if node.func.value.id == parts[0] and node.func.attr == parts[1]:
+                                self._log_result(True, f"Function '{func_name}' is called")
+                                return True
+                    elif len(parts) == 1:
+                        # Just check the method/attribute name
+                        if node.func.attr == parts[0]:
+                            self._log_result(True, f"Function/method '{func_name}' is called")
+                            return True
+                
+                # Handle nested attributes: numpy.random.randint()
+                if len(parts) > 2 and isinstance(node.func, ast.Attribute):
+                    # Reconstruct the full call path
+                    call_parts = []
+                    current = node.func
+                    while isinstance(current, ast.Attribute):
+                        call_parts.insert(0, current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        call_parts.insert(0, current.id)
+                    
+                    if '.'.join(call_parts) == func_name:
+                        self._log_result(True, f"Function '{func_name}' is called")
+                        return True
+        
+        self._log_result(False, f"Function '{func_name}' is not called")
+        return False
+    
+    def test_function(
+        self, 
+        func_name: str, 
+        test_cases: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Test a function with multiple test cases.
+        
+        Args:
+            func_name: Name of the function to test
+            test_cases: List of test case dictionaries with 'args', 'kwargs', 'expected'
+                       Example: [{'args': [5, 3], 'expected': 8}, 
+                                {'args': [10], 'kwargs': {'y': 2}, 'expected': 12}]
+            
+        Returns:
+            True if all test cases pass, False otherwise.
+        """
+        if not self._execution_successful:
+            self._log_result(False, f"Cannot test '{func_name}': script not executed")
+            return False
+        
+        if func_name not in self.execution_namespace:
+            self._log_result(False, f"Function '{func_name}' not found in namespace")
+            return False
+        
+        func = self.execution_namespace[func_name]
+        if not callable(func):
+            self._log_result(False, f"'{func_name}' is not a function")
+            return False
+        
+        all_passed = True
+        for i, test_case in enumerate(test_cases):
+            args = test_case.get('args', [])
+            kwargs = test_case.get('kwargs', {})
+            expected = test_case.get('expected')
+            tolerance = test_case.get('tolerance', 1e-6)
+            
+            try:
+                result = func(*args, **kwargs)
+                
+                # Compare result with expected
+                if isinstance(expected, (int, float)) and isinstance(result, (int, float)):
+                    passed = abs(result - expected) <= tolerance
+                else:
+                    passed = result == expected
+                
+                if passed:
+                    self._log_result(True, f"{func_name}{args} = {result}")
+                else:
+                    self._log_result(False, f"{func_name}{args} = {result}, expected {expected}")
+                    all_passed = False
+                    
+            except Exception as e:
+                self._log_result(False, f"{func_name}{args} raised {type(e).__name__}: {e}")
+                all_passed = False
+        
+        return all_passed
+    
     # ======================== PLOT CHECKING ========================
     
     def check_plot_created(self) -> bool:
