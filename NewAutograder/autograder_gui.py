@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import pandas as pd
@@ -28,12 +31,24 @@ except ImportError:
 try:
     import embedded_resources
     EMBEDDED_MODE = True
-except ImportError:
+    print("✓ Embedded resources loaded successfully")
+except ImportError as e:
     EMBEDDED_MODE = False
-    print("WARNING: embedded_resources not found. Run encode_resources.py first!")
+    print(f"WARNING: embedded_resources not found: {e}")
+    print("Please run 'python encode_resources.py' first!")
+except Exception as e:
+    EMBEDDED_MODE = False
+    print(f"ERROR loading embedded_resources: {e}")
 
 # Import the AutoGrader class
-# from autograder import AutoGrader
+try:
+    from autograder import AutoGrader
+    print("✓ AutoGrader class imported successfully")
+except ImportError as e:
+    print(f"ERROR: Could not import AutoGrader: {e}")
+    print("Make sure autograder.py is in the same directory")
+except Exception as e:
+    print(f"ERROR importing AutoGrader: {e}")
 
 
 class AutoGraderGUI:
@@ -44,14 +59,22 @@ class AutoGraderGUI:
         self.root.title("AutoGrader - Student Code Checker")
         self.root.geometry("900x700")
         
+        print("Initializing AutoGraderGUI...")
+        
         # Student info
         self.student_name = tk.StringVar()
         self.selected_file = tk.StringVar()
         self.selected_assignment = tk.StringVar()
         
         # System info
-        self.computer_name = socket.gethostname()
-        self.username = getpass.getuser()
+        try:
+            self.computer_name = socket.gethostname()
+            self.username = getpass.getuser()
+            print(f"✓ System info: {self.computer_name} ({self.username})")
+        except Exception as e:
+            print(f"WARNING: Could not get system info: {e}")
+            self.computer_name = "Unknown"
+            self.username = "Unknown"
         
         # Data storage
         self.assignments = {}
@@ -61,15 +84,22 @@ class AutoGraderGUI:
         self.excel_temp_file = None
         
         # Load configuration and assignments
+        print("Loading configuration...")
         self.load_config()
+        
+        print("Loading assignments...")
         self.load_assignments()
         
         # Build UI
+        print("Creating widgets...")
         self.create_widgets()
+        
+        print("✓ AutoGraderGUI initialization complete")
         
     def load_config(self):
         """Load configuration from embedded resources"""
         if not EMBEDDED_MODE:
+            print("ERROR: Embedded resources not available")
             messagebox.showerror("Config Error", 
                 "Embedded resources not found. Please run encode_resources.py and rebuild.")
             self.config = None
@@ -78,8 +108,12 @@ class AutoGraderGUI:
         try:
             self.config = embedded_resources.get_config_parser()
             self.debug_mode = self.config.getboolean('settings', 'debug', fallback=True)
+            print(f"✓ Config loaded (debug={self.debug_mode})")
             
         except Exception as e:
+            print(f"ERROR loading config: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Config Error", 
                 f"Error reading configuration: {str(e)}")
             self.config = None
@@ -87,25 +121,34 @@ class AutoGraderGUI:
     def load_assignments(self):
         """Load assignments from embedded Excel file"""
         if not EMBEDDED_MODE:
+            print("ERROR: Cannot load assignments - embedded mode not available")
             self.assignments = {}
             return
         
         try:
             # Get temporary Excel file from embedded resources
             self.excel_temp_file = embedded_resources.get_excel_file()
+            print(f"✓ Excel temp file created: {self.excel_temp_file}")
             
             # Read all sheets from the Excel file
             excel_file = pd.ExcelFile(self.excel_temp_file)
+            print(f"✓ Excel file opened, sheets: {excel_file.sheet_names}")
             
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name)
                 self.assignments[sheet_name] = df.to_dict('records')
+                print(f"  ✓ Loaded {len(df)} tests from '{sheet_name}'")
             
             if not self.assignments:
                 messagebox.showwarning("No Assignments", 
                     "No assignments found in embedded Excel file")
+            else:
+                print(f"✓ Total assignments loaded: {len(self.assignments)}")
         
         except Exception as e:
+            print(f"ERROR loading assignments: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Load Error", 
                 f"Error loading assignments: {str(e)}")
             self.assignments = {}
@@ -262,8 +305,13 @@ class AutoGraderGUI:
             assignment_name = self.selected_assignment.get()
             tests = self.assignments[assignment_name]
             
+            # Check if AutoGrader is available
+            try:
+                from autograder import AutoGrader
+            except ImportError as e:
+                raise Exception(f"AutoGrader module not found: {e}. Make sure autograder.py is in the same directory.")
+            
             # Initialize grader
-            from autograder import AutoGrader
             self.grader = AutoGrader(self.selected_file.get(), timeout=15)
             
             # Display header
@@ -640,3 +688,31 @@ Results:
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export PDF: {str(e)}")
     
+    def clear_results(self):
+        """Clear the results text area"""
+        self.results_text.delete(1.0, tk.END)
+        self.status_var.set("Ready")
+
+
+def main():
+    """Main entry point"""
+    try:
+        print("Starting AutoGrader GUI...")
+        root = tk.Tk()
+        print("✓ Tk root window created")
+        
+        app = AutoGraderGUI(root)
+        print("✓ AutoGraderGUI initialized")
+        
+        print("✓ Starting main loop...")
+        root.mainloop()
+        
+    except Exception as e:
+        print(f"ERROR in main(): {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
+
+
+if __name__ == "__main__":
+    main()
