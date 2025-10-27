@@ -1,13 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import pandas as pd
-import configparser
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import os
+import socket
+import getpass
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -23,7 +24,15 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
-# Import the AutoGrader class (assumes it's in the same directory)
+# Import embedded resources (contains config.ini and assignments.xlsx)
+try:
+    import embedded_resources
+    EMBEDDED_MODE = True
+except ImportError:
+    EMBEDDED_MODE = False
+    print("WARNING: embedded_resources not found. Run encode_resources.py first!")
+
+# Import the AutoGrader class
 # from autograder import AutoGrader
 
 
@@ -40,11 +49,16 @@ class AutoGraderGUI:
         self.selected_file = tk.StringVar()
         self.selected_assignment = tk.StringVar()
         
+        # System info
+        self.computer_name = socket.gethostname()
+        self.username = getpass.getuser()
+        
         # Data storage
         self.assignments = {}
         self.config = None
         self.grader = None
         self.debug_mode = True
+        self.excel_temp_file = None
         
         # Load configuration and assignments
         self.load_config()
@@ -54,28 +68,34 @@ class AutoGraderGUI:
         self.create_widgets()
         
     def load_config(self):
-        """Load configuration from config.ini"""
+        """Load configuration from embedded resources"""
+        if not EMBEDDED_MODE:
+            messagebox.showerror("Config Error", 
+                "Embedded resources not found. Please run encode_resources.py and rebuild.")
+            self.config = None
+            return
+        
         try:
-            self.config = configparser.ConfigParser()
-            self.config.read('config.ini')
-            
-            # Get debug setting
+            self.config = embedded_resources.get_config_parser()
             self.debug_mode = self.config.getboolean('settings', 'debug', fallback=True)
             
-        except FileNotFoundError:
-            messagebox.showerror("Config Error", 
-                "config.ini not found. Please create it with email settings.")
-            self.config = None
         except Exception as e:
             messagebox.showerror("Config Error", 
-                f"Error reading config.ini: {str(e)}")
+                f"Error reading configuration: {str(e)}")
             self.config = None
     
     def load_assignments(self):
-        """Load assignments from Excel file"""
+        """Load assignments from embedded Excel file"""
+        if not EMBEDDED_MODE:
+            self.assignments = {}
+            return
+        
         try:
+            # Get temporary Excel file from embedded resources
+            self.excel_temp_file = embedded_resources.get_excel_file()
+            
             # Read all sheets from the Excel file
-            excel_file = pd.ExcelFile('assignments.xlsx')
+            excel_file = pd.ExcelFile(self.excel_temp_file)
             
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name)
@@ -83,16 +103,17 @@ class AutoGraderGUI:
             
             if not self.assignments:
                 messagebox.showwarning("No Assignments", 
-                    "No assignments found in assignments.xlsx")
+                    "No assignments found in embedded Excel file")
         
-        except FileNotFoundError:
-            messagebox.showerror("File Error", 
-                "assignments.xlsx not found. Please create it with assignment tests.")
-            self.assignments = {}
         except Exception as e:
             messagebox.showerror("Load Error", 
                 f"Error loading assignments: {str(e)}")
             self.assignments = {}
+    
+    def __del__(self):
+        """Cleanup temporary Excel file on exit"""
+        if self.excel_temp_file:
+            embedded_resources.cleanup_temp_file(self.excel_temp_file)
     
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -113,6 +134,11 @@ class AutoGraderGUI:
         ttk.Label(info_frame, text="Name:").grid(row=0, column=0, sticky=tk.W, padx=5)
         name_entry = ttk.Entry(info_frame, textvariable=self.student_name, width=40)
         name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+        
+        # Display system info (read-only)
+        ttk.Label(info_frame, text="Computer:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        computer_label = ttk.Label(info_frame, text=f"{self.computer_name} ({self.username})")
+        computer_label.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         
         info_frame.columnconfigure(1, weight=1)
         
@@ -392,6 +418,8 @@ class AutoGraderGUI:
         self.results_text.insert(tk.END, "AUTOGRADER RESULTS\n", 'header')
         self.results_text.insert(tk.END, "="*70 + "\n", 'header')
         self.results_text.insert(tk.END, f"Student: {self.student_name.get()}\n")
+        self.results_text.insert(tk.END, f"Computer: {self.computer_name}\n")
+        self.results_text.insert(tk.END, f"Username: {self.username}\n")
         self.results_text.insert(tk.END, f"Assignment: {self.selected_assignment.get()}\n")
         self.results_text.insert(tk.END, f"File: {os.path.basename(self.selected_file.get())}\n")
         self.results_text.insert(tk.END, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -480,6 +508,8 @@ class AutoGraderGUI:
 AutoGrader Submission
 
 Student Name: {self.student_name.get()}
+Computer Name: {self.computer_name}
+Username: {self.username}
 Assignment: {self.selected_assignment.get()}
 Submission Date: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -571,6 +601,8 @@ Results:
             # Student Information
             info_text = f"""
             <b>Student:</b> {self.student_name.get()}<br/>
+            <b>Computer:</b> {self.computer_name}<br/>
+            <b>Username:</b> {self.username}<br/>
             <b>Assignment:</b> {self.selected_assignment.get()}<br/>
             <b>File:</b> {os.path.basename(self.selected_file.get())}<br/>
             <b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -608,18 +640,3 @@ Results:
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export PDF: {str(e)}")
     
-    def clear_results(self):
-        """Clear the results text area"""
-        self.results_text.delete(1.0, tk.END)
-        self.status_var.set("Ready")
-
-
-def main():
-    """Main entry point"""
-    root = tk.Tk()
-    app = AutoGraderGUI(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
