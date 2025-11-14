@@ -359,6 +359,9 @@ if __name__ == "__main__":
         'assignment7_submission.py': example7,
         'assignment8_submission.py': example8,
         'assignment9_submission.py': example9,
+        'assignment10_submission.py': example10,
+        'assignment11_submission.py': example11,
+        'assignment12_submission.py': example12,
     }
     
     # Create solutions folder if it doesn't exist
