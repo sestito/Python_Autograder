@@ -78,16 +78,43 @@ class AutoGrader:
             self._log_result(False, f"Could not read file: {e}")
             return False
     
-    def _log_result(self, passed: bool, message: str):
-        """Log a test result."""
-        status = "✓ PASS" if passed else "✗ FAIL"
-        print(f"{status}: {message}")
-        self.test_results.append({"passed": passed, "message": message})
+    def _log_result(self, passed: bool, message: str, 
+                    custom_pass_feedback: Optional[str] = None,
+                    custom_fail_feedback: Optional[str] = None):
+        """
+        Log a test result with optional custom feedback.
+        
+        Args:
+            passed: Whether the test passed
+            message: The default message describing the result
+            custom_pass_feedback: Optional custom message to display on pass
+            custom_fail_feedback: Optional custom message to display on fail
+        """
+        status = "PASS" if passed else "FAIL"
+        checkmark = "\u2713" if passed else "\u2717"
+        
+        # Use custom feedback if provided, otherwise use default message
+        if passed and custom_pass_feedback:
+            display_message = custom_pass_feedback
+        elif not passed and custom_fail_feedback:
+            display_message = custom_fail_feedback
+        else:
+            display_message = message
+        
+        print(f"{checkmark} {status}: {display_message}")
+        self.test_results.append({
+            "passed": passed, 
+            "message": display_message,
+            "default_message": message  # Store original message for reference
+        })
     
-    def execute_script(self, variables_to_capture: Optional[List[str]] = None) -> bool:
+    def execute_script(self, variables_to_capture: Optional[List[str]] = None,
+                       custom_pass_feedback: Optional[str] = None,
+                       custom_fail_feedback: Optional[str] = None) -> bool:
         """Execute the student's entire script and capture variables."""
         if self._content is None:
-            self._log_result(False, "No code to execute")
+            self._log_result(False, "No code to execute", 
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         safe_builtins = self._get_safe_builtins()
@@ -111,14 +138,16 @@ class AutoGrader:
                 }
             
             self._execution_successful = True
-            self._log_result(True, f"Script executed successfully")
+            self._log_result(True, f"Script executed successfully",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
             
         except TimeoutException as e:
-            self._log_result(False, str(e))
+            self._log_result(False, str(e), custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
-            self._log_result(False, f"Execution failed: {type(e).__name__}: {e}")
+            self._log_result(False, f"Execution failed: {type(e).__name__}: {e}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     def _get_safe_builtins(self) -> Dict[str, Any]:
@@ -151,88 +180,113 @@ class AutoGrader:
     
     # ======================== VARIABLE CHECKING ========================
     
-    def check_variable_value(self, var_name: str, expected_value: Any, tolerance: float = 1e-6) -> bool:
+    def check_variable_value(self, var_name: str, expected_value: Any, tolerance: float = 1e-6,
+                             custom_pass_feedback: Optional[str] = None,
+                             custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a variable has the expected value."""
         if not self._execution_successful:
-            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            self._log_result(False, f"Cannot check '{var_name}': script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
+            self._log_result(False, f"Variable '{var_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         actual_value = self.captured_vars[var_name]
         
         if actual_value is None and expected_value is None:
-            self._log_result(True, f"'{var_name}' is None as expected")
+            self._log_result(True, f"'{var_name}' is None as expected",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         
         if isinstance(expected_value, (int, float)) and isinstance(actual_value, (int, float)):
             if abs(actual_value - expected_value) <= tolerance:
-                self._log_result(True, f"'{var_name}' = {actual_value}")
+                self._log_result(True, f"'{var_name}' = {actual_value}",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"'{var_name}' = {actual_value}, expected {expected_value}")
+                self._log_result(False, f"'{var_name}' = {actual_value}, expected {expected_value}",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
         
         if isinstance(expected_value, (list, tuple)) and isinstance(actual_value, (list, tuple)):
             try:
                 import numpy as np
                 if np.allclose(actual_value, expected_value, atol=tolerance):
-                    self._log_result(True, f"'{var_name}' matches expected list")
+                    self._log_result(True, f"'{var_name}' matches expected list",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' does not match expected list")
+                    self._log_result(False, f"'{var_name}' does not match expected list",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
             except:
                 if actual_value == expected_value:
-                    self._log_result(True, f"'{var_name}' matches expected list")
+                    self._log_result(True, f"'{var_name}' matches expected list",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' does not match expected list")
+                    self._log_result(False, f"'{var_name}' does not match expected list",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
         
         try:
             import numpy as np
             if isinstance(expected_value, np.ndarray) or isinstance(actual_value, np.ndarray):
                 if np.allclose(actual_value, expected_value, atol=tolerance):
-                    self._log_result(True, f"'{var_name}' matches expected array")
+                    self._log_result(True, f"'{var_name}' matches expected array",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' does not match expected array")
+                    self._log_result(False, f"'{var_name}' does not match expected array",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
         except:
             pass
         
         if actual_value == expected_value:
-            self._log_result(True, f"'{var_name}' = {repr(actual_value)}")
+            self._log_result(True, f"'{var_name}' = {repr(actual_value)}",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         else:
-            self._log_result(False, f"'{var_name}' = {repr(actual_value)}, expected {repr(expected_value)}")
+            self._log_result(False, f"'{var_name}' = {repr(actual_value)}, expected {repr(expected_value)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
-    def check_variable_type(self, var_name: str, expected_type: type) -> bool:
+    def check_variable_type(self, var_name: str, expected_type: type,
+                            custom_pass_feedback: Optional[str] = None,
+                            custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a variable has the expected type."""
         if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
+            self._log_result(False, f"Variable '{var_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if isinstance(self.captured_vars[var_name], expected_type):
-            self._log_result(True, f"'{var_name}' is of type {expected_type.__name__}")
+            self._log_result(True, f"'{var_name}' is of type {expected_type.__name__}",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         else:
             actual_type = type(self.captured_vars[var_name])
-            self._log_result(False, f"'{var_name}' is {actual_type.__name__}, expected {expected_type.__name__}")
+            self._log_result(False, f"'{var_name}' is {actual_type.__name__}, expected {expected_type.__name__}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
-    def check_list_equals(self, var_name: str, expected_list: list, order_matters: bool = True, tolerance: float = 1e-6) -> bool:
+    def check_list_equals(self, var_name: str, expected_list: list, order_matters: bool = True, 
+                          tolerance: float = 1e-6,
+                          custom_pass_feedback: Optional[str] = None,
+                          custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a variable contains a list equal to the expected list."""
         if not self._execution_successful:
-            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            self._log_result(False, f"Cannot check '{var_name}': script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
+            self._log_result(False, f"Variable '{var_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         actual_value = self.captured_vars[var_name]
@@ -244,41 +298,52 @@ class AutoGrader:
             is_array_like = isinstance(actual_value, (list, tuple))
         
         if not is_array_like:
-            self._log_result(False, f"'{var_name}' is not a list/array (type: {type(actual_value).__name__})")
+            self._log_result(False, f"'{var_name}' is not a list/array (type: {type(actual_value).__name__})",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if order_matters:
             try:
                 import numpy as np
                 if np.allclose(actual_value, expected_list, atol=tolerance):
-                    self._log_result(True, f"'{var_name}' equals expected list")
+                    self._log_result(True, f"'{var_name}' equals expected list",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' does not equal expected list")
+                    self._log_result(False, f"'{var_name}' does not equal expected list",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
             except:
                 if list(actual_value) == list(expected_list):
-                    self._log_result(True, f"'{var_name}' equals expected list")
+                    self._log_result(True, f"'{var_name}' equals expected list",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' does not equal expected list")
+                    self._log_result(False, f"'{var_name}' does not equal expected list",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
         else:
             if sorted(list(actual_value)) == sorted(list(expected_list)):
-                self._log_result(True, f"'{var_name}' contains expected elements")
+                self._log_result(True, f"'{var_name}' contains expected elements",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"'{var_name}' does not contain expected elements")
+                self._log_result(False, f"'{var_name}' does not contain expected elements",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
     
-    def check_array_equals(self, var_name: str, expected_array, tolerance: float = 1e-6) -> bool:
+    def check_array_equals(self, var_name: str, expected_array, tolerance: float = 1e-6,
+                           custom_pass_feedback: Optional[str] = None,
+                           custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a variable contains an array equal to the expected array."""
         if not self._execution_successful:
-            self._log_result(False, f"Cannot check '{var_name}': script not executed")
+            self._log_result(False, f"Cannot check '{var_name}': script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if var_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var_name}' not found")
+            self._log_result(False, f"Variable '{var_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         actual_value = self.captured_vars[var_name]
@@ -290,41 +355,53 @@ class AutoGrader:
                 try:
                     actual_value = np.array(actual_value)
                 except:
-                    self._log_result(False, f"'{var_name}' cannot be converted to array")
+                    self._log_result(False, f"'{var_name}' cannot be converted to array",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
             elif not isinstance(actual_value, np.ndarray):
-                self._log_result(False, f"'{var_name}' is not a list or array")
+                self._log_result(False, f"'{var_name}' is not a list or array",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
             
             if not isinstance(expected_array, np.ndarray):
                 expected_array = np.array(expected_array)
             
             if actual_value.shape != expected_array.shape:
-                self._log_result(False, f"'{var_name}' shape {actual_value.shape} != expected {expected_array.shape}")
+                self._log_result(False, f"'{var_name}' shape {actual_value.shape} != expected {expected_array.shape}",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
             
             if np.allclose(actual_value, expected_array, atol=tolerance):
-                self._log_result(True, f"'{var_name}' array equals expected")
+                self._log_result(True, f"'{var_name}' array equals expected",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"'{var_name}' array does not equal expected")
+                self._log_result(False, f"'{var_name}' array does not equal expected",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
                 
         except ImportError:
-            self._log_result(False, "NumPy not available")
+            self._log_result(False, "NumPy not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
-            self._log_result(False, f"Error comparing arrays: {str(e)}")
+            self._log_result(False, f"Error comparing arrays: {str(e)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
-    def compare_with_solution(self, solution_file: str, variables_to_compare: list, tolerance: float = 1e-6) -> bool:
+    def compare_with_solution(self, solution_file: str, variables_to_compare: list, 
+                              tolerance: float = 1e-6,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
         """Execute a solution file and compare variables."""
         if not self._execution_successful:
-            self._log_result(False, "Cannot compare: student script not executed")
+            self._log_result(False, "Cannot compare: student script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if not os.path.exists(solution_file):
-            self._log_result(False, f"Solution file not found: {solution_file}")
+            self._log_result(False, f"Solution file not found: {solution_file}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         try:
@@ -342,42 +419,53 @@ class AutoGrader:
             all_match = True
             for var_name in variables_to_compare:
                 if var_name not in self.captured_vars:
-                    self._log_result(False, f"Variable '{var_name}' not found in student code")
+                    self._log_result(False, f"Variable '{var_name}' not found in student code",
+                                   custom_fail_feedback=custom_fail_feedback)
                     all_match = False
                     continue
                 
                 if var_name not in solution_namespace:
-                    self._log_result(False, f"Variable '{var_name}' not found in solution")
+                    self._log_result(False, f"Variable '{var_name}' not found in solution",
+                                   custom_fail_feedback=custom_fail_feedback)
                     all_match = False
                     continue
                 
                 student_value = self.captured_vars[var_name]
                 solution_value = solution_namespace[var_name]
                 
-                match = self._compare_values(var_name, student_value, solution_value, tolerance)
+                match = self._compare_values(var_name, student_value, solution_value, tolerance,
+                                            custom_pass_feedback=custom_pass_feedback,
+                                            custom_fail_feedback=custom_fail_feedback)
                 if not match:
                     all_match = False
             
             return all_match
             
         except TimeoutException:
-            self._log_result(False, "Solution execution timed out")
+            self._log_result(False, "Solution execution timed out",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
-            self._log_result(False, f"Error executing solution: {str(e)}")
+            self._log_result(False, f"Error executing solution: {str(e)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
-    def _compare_values(self, var_name: str, student_value: Any, solution_value: Any, tolerance: float) -> bool:
+    def _compare_values(self, var_name: str, student_value: Any, solution_value: Any, 
+                        tolerance: float,
+                        custom_pass_feedback: Optional[str] = None,
+                        custom_fail_feedback: Optional[str] = None) -> bool:
         """Internal method to compare two values."""
         try:
             import numpy as np
             if isinstance(solution_value, np.ndarray) or isinstance(student_value, np.ndarray):
                 try:
                     if np.allclose(student_value, solution_value, atol=tolerance):
-                        self._log_result(True, f"'{var_name}' matches solution")
+                        self._log_result(True, f"'{var_name}' matches solution",
+                                       custom_pass_feedback=custom_pass_feedback)
                         return True
                     else:
-                        self._log_result(False, f"'{var_name}' does not match solution")
+                        self._log_result(False, f"'{var_name}' does not match solution",
+                                       custom_fail_feedback=custom_fail_feedback)
                         return False
                 except:
                     pass
@@ -386,56 +474,72 @@ class AutoGrader:
         
         if isinstance(solution_value, (int, float)) and isinstance(student_value, (int, float)):
             if abs(student_value - solution_value) <= tolerance:
-                self._log_result(True, f"'{var_name}' matches solution")
+                self._log_result(True, f"'{var_name}' matches solution",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"'{var_name}' = {student_value}, expected {solution_value}")
+                self._log_result(False, f"'{var_name}' = {student_value}, expected {solution_value}",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
         
         if isinstance(solution_value, (list, tuple)) and isinstance(student_value, (list, tuple)):
             try:
                 import numpy as np
                 if np.allclose(student_value, solution_value, atol=tolerance):
-                    self._log_result(True, f"'{var_name}' list matches solution")
+                    self._log_result(True, f"'{var_name}' list matches solution",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' list does not match solution")
+                    self._log_result(False, f"'{var_name}' list does not match solution",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
             except:
                 if student_value == solution_value:
-                    self._log_result(True, f"'{var_name}' list matches solution")
+                    self._log_result(True, f"'{var_name}' list matches solution",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 else:
-                    self._log_result(False, f"'{var_name}' list does not match solution")
+                    self._log_result(False, f"'{var_name}' list does not match solution",
+                                   custom_fail_feedback=custom_fail_feedback)
                     return False
         
         if student_value == solution_value:
-            self._log_result(True, f"'{var_name}' matches solution")
+            self._log_result(True, f"'{var_name}' matches solution",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         else:
-            self._log_result(False, f"'{var_name}' = {repr(student_value)}, expected {repr(solution_value)}")
+            self._log_result(False, f"'{var_name}' = {repr(student_value)}, expected {repr(solution_value)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     # ======================== FUNCTION CHECKING ========================
     
-    def check_function_exists(self, func_name: str) -> bool:
+    def check_function_exists(self, func_name: str,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a function is defined."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         for node in ast.walk(self._ast_tree):
             if isinstance(node, ast.FunctionDef) and node.name == func_name:
-                self._log_result(True, f"Function '{func_name}' is defined")
+                self._log_result(True, f"Function '{func_name}' is defined",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
         
-        self._log_result(False, f"Function '{func_name}' not found")
+        self._log_result(False, f"Function '{func_name}' not found",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
-    def check_function_called(self, func_name: str) -> bool:
+    def check_function_called(self, func_name: str,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a function is called."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         parts = func_name.split('.')
@@ -443,18 +547,21 @@ class AutoGrader:
         for node in ast.walk(self._ast_tree):
             if isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id == func_name:
-                    self._log_result(True, f"Function '{func_name}' is called")
+                    self._log_result(True, f"Function '{func_name}' is called",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
                 
                 if isinstance(node.func, ast.Attribute):
                     if len(parts) == 2:
                         if isinstance(node.func.value, ast.Name):
                             if node.func.value.id == parts[0] and node.func.attr == parts[1]:
-                                self._log_result(True, f"Function '{func_name}' is called")
+                                self._log_result(True, f"Function '{func_name}' is called",
+                                               custom_pass_feedback=custom_pass_feedback)
                                 return True
                     elif len(parts) == 1:
                         if node.func.attr == parts[0]:
-                            self._log_result(True, f"Function '{func_name}' is called")
+                            self._log_result(True, f"Function '{func_name}' is called",
+                                           custom_pass_feedback=custom_pass_feedback)
                             return True
                 
                 if len(parts) > 2 and isinstance(node.func, ast.Attribute):
@@ -467,25 +574,81 @@ class AutoGrader:
                         call_parts.insert(0, current.id)
                     
                     if '.'.join(call_parts) == func_name:
-                        self._log_result(True, f"Function '{func_name}' is called")
+                        self._log_result(True, f"Function '{func_name}' is called",
+                                       custom_pass_feedback=custom_pass_feedback)
                         return True
         
-        self._log_result(False, f"Function '{func_name}' is not called")
+        self._log_result(False, f"Function '{func_name}' is not called",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
-    def test_function(self, func_name: str, test_cases: List[Dict[str, Any]]) -> bool:
+    def check_function_not_called(self, func_name: str,
+                                  custom_pass_feedback: Optional[str] = None,
+                                  custom_fail_feedback: Optional[str] = None) -> bool:
+        """Check if a function is NOT called (inverse of check_function_called)."""
+        if self._ast_tree is None:
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        parts = func_name.split('.')
+        
+        for node in ast.walk(self._ast_tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == func_name:
+                    self._log_result(False, f"Function '{func_name}' should NOT be called",
+                                   custom_fail_feedback=custom_fail_feedback)
+                    return False
+                
+                if isinstance(node.func, ast.Attribute):
+                    if len(parts) == 2:
+                        if isinstance(node.func.value, ast.Name):
+                            if node.func.value.id == parts[0] and node.func.attr == parts[1]:
+                                self._log_result(False, f"Function '{func_name}' should NOT be called",
+                                               custom_fail_feedback=custom_fail_feedback)
+                                return False
+                    elif len(parts) == 1:
+                        if node.func.attr == parts[0]:
+                            self._log_result(False, f"Function '{func_name}' should NOT be called",
+                                           custom_fail_feedback=custom_fail_feedback)
+                            return False
+                
+                if len(parts) > 2 and isinstance(node.func, ast.Attribute):
+                    call_parts = []
+                    current = node.func
+                    while isinstance(current, ast.Attribute):
+                        call_parts.insert(0, current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        call_parts.insert(0, current.id)
+                    
+                    if '.'.join(call_parts) == func_name:
+                        self._log_result(False, f"Function '{func_name}' should NOT be called",
+                                       custom_fail_feedback=custom_fail_feedback)
+                        return False
+        
+        self._log_result(True, f"Function '{func_name}' is correctly not used",
+                       custom_pass_feedback=custom_pass_feedback)
+        return True
+    
+    def test_function(self, func_name: str, test_cases: List[Dict[str, Any]],
+                      custom_pass_feedback: Optional[str] = None,
+                      custom_fail_feedback: Optional[str] = None) -> bool:
         """Test a function with multiple test cases."""
         if not self._execution_successful:
-            self._log_result(False, f"Cannot test '{func_name}': script not executed")
+            self._log_result(False, f"Cannot test '{func_name}': script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if func_name not in self.execution_namespace:
-            self._log_result(False, f"Function '{func_name}' not found")
+            self._log_result(False, f"Function '{func_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         func = self.execution_namespace[func_name]
         if not callable(func):
-            self._log_result(False, f"'{func_name}' is not a function")
+            self._log_result(False, f"'{func_name}' is not a function",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         all_passed = True
@@ -504,18 +667,24 @@ class AutoGrader:
                     passed = result == expected
                 
                 if passed:
-                    self._log_result(True, f"{func_name}{args} = {result}")
+                    self._log_result(True, f"{func_name}{args} = {result}",
+                                   custom_pass_feedback=custom_pass_feedback)
                 else:
-                    self._log_result(False, f"{func_name}{args} = {result}, expected {expected}")
+                    self._log_result(False, f"{func_name}{args} = {result}, expected {expected}",
+                                   custom_fail_feedback=custom_fail_feedback)
                     all_passed = False
                     
             except Exception as e:
-                self._log_result(False, f"{func_name}{args} raised {type(e).__name__}: {e}")
+                self._log_result(False, f"{func_name}{args} raised {type(e).__name__}: {e}",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         return all_passed
     
-    def test_function_with_solution(self, func_name: str, solution_file: str, test_inputs: List[Dict[str, Any]], tolerance: float = 1e-6) -> bool:
+    def test_function_with_solution(self, func_name: str, solution_file: str, 
+                                    test_inputs: List[Dict[str, Any]], tolerance: float = 1e-6,
+                                    custom_pass_feedback: Optional[str] = None,
+                                    custom_fail_feedback: Optional[str] = None) -> bool:
         """
         Test a function against a solution file with various input types.
         
@@ -524,6 +693,8 @@ class AutoGrader:
             solution_file: Path to solution file containing the correct function
             test_inputs: List of test input dictionaries with 'args' and optional 'kwargs'
             tolerance: Tolerance for numeric comparisons
+            custom_pass_feedback: Optional custom message to display on pass
+            custom_fail_feedback: Optional custom message to display on fail
             
         Returns:
             True if all test cases match solution output
@@ -537,21 +708,25 @@ class AutoGrader:
             ]
         """
         if not self._execution_successful:
-            self._log_result(False, f"Cannot test '{func_name}': script not executed")
+            self._log_result(False, f"Cannot test '{func_name}': script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if func_name not in self.execution_namespace:
-            self._log_result(False, f"Function '{func_name}' not found in student code")
+            self._log_result(False, f"Function '{func_name}' not found in student code",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         student_func = self.execution_namespace[func_name]
         if not callable(student_func):
-            self._log_result(False, f"'{func_name}' is not a function")
+            self._log_result(False, f"'{func_name}' is not a function",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         # Load and execute solution file
         if not os.path.exists(solution_file):
-            self._log_result(False, f"Solution file not found: {solution_file}")
+            self._log_result(False, f"Solution file not found: {solution_file}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         try:
@@ -567,7 +742,8 @@ class AutoGrader:
             run_with_timeout(execute_solution, timeout=self.timeout)
             
             if func_name not in solution_namespace:
-                self._log_result(False, f"Function '{func_name}' not found in solution")
+                self._log_result(False, f"Function '{func_name}' not found in solution",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
             
             solution_func = solution_namespace[func_name]
@@ -584,25 +760,32 @@ class AutoGrader:
                     solution_result = solution_func(*args, **kwargs)
                     
                     # Compare results
-                    match = self._compare_values(f"{func_name}_output_{i}", student_result, solution_result, tolerance)
+                    match = self._compare_values(f"{func_name}_output_{i}", student_result, solution_result, tolerance,
+                                                custom_pass_feedback=custom_pass_feedback,
+                                                custom_fail_feedback=custom_fail_feedback)
                     if not match:
                         all_passed = False
                         
                 except Exception as e:
-                    self._log_result(False, f"{func_name} test {i} raised {type(e).__name__}: {e}")
+                    self._log_result(False, f"{func_name} test {i} raised {type(e).__name__}: {e}",
+                                   custom_fail_feedback=custom_fail_feedback)
                     all_passed = False
             
             return all_passed
             
         except TimeoutException:
-            self._log_result(False, "Solution execution timed out")
+            self._log_result(False, "Solution execution timed out",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
-            self._log_result(False, f"Error executing solution: {str(e)}")
+            self._log_result(False, f"Error executing solution: {str(e)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     def check_variable_relationship(self, var1_name: str, var2_name: str, relationship: Callable, 
-                                    tolerance: float = 1e-6, description: str = None) -> bool:
+                                    tolerance: float = 1e-6, description: str = None,
+                                    custom_pass_feedback: Optional[str] = None,
+                                    custom_fail_feedback: Optional[str] = None) -> bool:
         """
         Check if two variables have a specific mathematical relationship.
         
@@ -613,6 +796,8 @@ class AutoGrader:
                          Example: lambda x: np.cos(np.pi * x)
             tolerance: Tolerance for comparison
             description: Optional description of the relationship for logging
+            custom_pass_feedback: Optional custom message to display on pass
+            custom_fail_feedback: Optional custom message to display on fail
             
         Returns:
             True if relationship holds
@@ -621,18 +806,21 @@ class AutoGrader:
             # Check if y = cos(pi * x)
             grader.check_variable_relationship('x', 'y', 
                 lambda x: np.cos(np.pi * x),
-                description="y = cos(π * x)")
+                description="y = cos(pi * x)")
         """
         if not self._execution_successful:
-            self._log_result(False, "Cannot check relationship: script not executed")
+            self._log_result(False, "Cannot check relationship: script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if var1_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var1_name}' not found")
+            self._log_result(False, f"Variable '{var1_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         if var2_name not in self.captured_vars:
-            self._log_result(False, f"Variable '{var2_name}' not found")
+            self._log_result(False, f"Variable '{var2_name}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         var1_value = self.captured_vars[var1_name]
@@ -654,35 +842,45 @@ class AutoGrader:
             
             if match:
                 desc = description or f"{var2_name} = f({var1_name})"
-                self._log_result(True, f"Relationship verified: {desc}")
+                self._log_result(True, f"Relationship verified: {desc}",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
                 desc = description or f"{var2_name} = f({var1_name})"
-                self._log_result(False, f"Relationship failed: {desc}")
+                self._log_result(False, f"Relationship failed: {desc}",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
                 
         except Exception as e:
-            self._log_result(False, f"Error checking relationship: {str(e)}")
+            self._log_result(False, f"Error checking relationship: {str(e)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     # ======================== PLOT CHECKING ========================
     
-    def check_plot_created(self) -> bool:
+    def check_plot_created(self,
+                           custom_pass_feedback: Optional[str] = None,
+                           custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if any plot was created."""
         figs = plt.get_fignums()
         if len(figs) > 0:
-            self._log_result(True, f"Plot created")
+            self._log_result(True, f"Plot created",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         else:
-            self._log_result(False, "No plot created")
+            self._log_result(False, "No plot created",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     def check_plot_properties(self, title: Optional[str] = None, xlabel: Optional[str] = None, 
                               ylabel: Optional[str] = None, has_legend: Optional[bool] = None,
-                              has_grid: Optional[bool] = None, fig_num: int = 1) -> bool:
+                              has_grid: Optional[bool] = None, fig_num: int = 1,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
         """Check plot properties."""
         if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found")
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         fig = plt.figure(fig_num)
@@ -691,31 +889,39 @@ class AutoGrader:
         
         if title is not None:
             if ax.get_title() == title:
-                self._log_result(True, f"Plot title: '{title}'")
+                self._log_result(True, f"Plot title: '{title}'",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Plot title is '{ax.get_title()}', expected '{title}'")
+                self._log_result(False, f"Plot title is '{ax.get_title()}', expected '{title}'",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if xlabel is not None:
             if ax.get_xlabel() == xlabel:
-                self._log_result(True, f"X-axis label: '{xlabel}'")
+                self._log_result(True, f"X-axis label: '{xlabel}'",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"X-axis label is '{ax.get_xlabel()}', expected '{xlabel}'")
+                self._log_result(False, f"X-axis label is '{ax.get_xlabel()}', expected '{xlabel}'",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if ylabel is not None:
             if ax.get_ylabel() == ylabel:
-                self._log_result(True, f"Y-axis label: '{ylabel}'")
+                self._log_result(True, f"Y-axis label: '{ylabel}'",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Y-axis label is '{ax.get_ylabel()}', expected '{ylabel}'")
+                self._log_result(False, f"Y-axis label is '{ax.get_ylabel()}', expected '{ylabel}'",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if has_legend is not None:
             legend_exists = ax.get_legend() is not None
             if legend_exists == has_legend:
-                self._log_result(True, f"Plot {'has' if has_legend else 'does not have'} legend")
+                self._log_result(True, f"Plot {'has' if has_legend else 'does not have'} legend",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Plot {'should have' if has_legend else 'should not have'} legend")
+                self._log_result(False, f"Plot {'should have' if has_legend else 'should not have'} legend",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if has_grid is not None:
@@ -729,18 +935,23 @@ class AutoGrader:
                         break
             
             if grid_on == has_grid:
-                self._log_result(True, f"Plot {'has' if has_grid else 'does not have'} grid")
+                self._log_result(True, f"Plot {'has' if has_grid else 'does not have'} grid",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Plot {'should have' if has_grid else 'should not have'} grid")
+                self._log_result(False, f"Plot {'should have' if has_grid else 'should not have'} grid",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         return all_passed
     
     def check_plot_data(self, expected_x: Optional[List] = None, expected_y: Optional[List] = None,
-                        line_index: int = 0, tolerance: float = 1e-6, fig_num: int = 1) -> bool:
+                        line_index: int = 0, tolerance: float = 1e-6, fig_num: int = 1,
+                        custom_pass_feedback: Optional[str] = None,
+                        custom_fail_feedback: Optional[str] = None) -> bool:
         """Check plot data."""
         if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found")
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         fig = plt.figure(fig_num)
@@ -748,7 +959,8 @@ class AutoGrader:
         lines = ax.get_lines()
         
         if line_index >= len(lines):
-            self._log_result(False, f"Line {line_index} not found")
+            self._log_result(False, f"Line {line_index} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         line = lines[line_index]
@@ -759,26 +971,33 @@ class AutoGrader:
         if expected_x is not None:
             import numpy as np
             if np.allclose(actual_x, expected_x, atol=tolerance):
-                self._log_result(True, f"X-axis data matches")
+                self._log_result(True, f"X-axis data matches",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"X-axis data does not match")
+                self._log_result(False, f"X-axis data does not match",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if expected_y is not None:
             import numpy as np
             if np.allclose(actual_y, expected_y, atol=tolerance):
-                self._log_result(True, f"Y-axis data matches")
+                self._log_result(True, f"Y-axis data matches",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Y-axis data does not match")
+                self._log_result(False, f"Y-axis data does not match",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         return all_passed
     
     def check_plot_data_length(self, min_length: Optional[int] = None, max_length: Optional[int] = None,
-                                exact_length: Optional[int] = None, line_index: int = 0, fig_num: int = 1) -> bool:
+                                exact_length: Optional[int] = None, line_index: int = 0, fig_num: int = 1,
+                                custom_pass_feedback: Optional[str] = None,
+                                custom_fail_feedback: Optional[str] = None) -> bool:
         """Check plot data length."""
         if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found")
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         fig = plt.figure(fig_num)
@@ -786,7 +1005,8 @@ class AutoGrader:
         lines = ax.get_lines()
         
         if line_index >= len(lines):
-            self._log_result(False, f"Line {line_index} not found")
+            self._log_result(False, f"Line {line_index} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         line = lines[line_index]
@@ -795,31 +1015,41 @@ class AutoGrader:
         
         if exact_length is not None:
             if actual_length == exact_length:
-                self._log_result(True, f"Line has exactly {exact_length} data points")
+                self._log_result(True, f"Line has exactly {exact_length} data points",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Line has {actual_length} data points, expected {exact_length}")
+                self._log_result(False, f"Line has {actual_length} data points, expected {exact_length}",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if min_length is not None:
             if actual_length >= min_length:
-                self._log_result(True, f"Line has at least {min_length} data points")
+                self._log_result(True, f"Line has at least {min_length} data points",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Line has {actual_length} data points, minimum is {min_length}")
+                self._log_result(False, f"Line has {actual_length} data points, minimum is {min_length}",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if max_length is not None:
             if actual_length <= max_length:
-                self._log_result(True, f"Line has at most {max_length} data points")
+                self._log_result(True, f"Line has at most {max_length} data points",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Line has {actual_length} data points, maximum is {max_length}")
+                self._log_result(False, f"Line has {actual_length} data points, maximum is {max_length}",
+                               custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         return all_passed
     
-    def check_plot_function(self, function: Callable, line_index: int = 0, tolerance: float = 1e-6, fig_num: int = 1) -> bool:
+    def check_plot_function(self, function: Callable, line_index: int = 0, tolerance: float = 1e-6, 
+                            fig_num: int = 1,
+                            custom_pass_feedback: Optional[str] = None,
+                            custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if Y data matches a function of X data."""
         if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found")
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         fig = plt.figure(fig_num)
@@ -827,7 +1057,8 @@ class AutoGrader:
         lines = ax.get_lines()
         
         if line_index >= len(lines):
-            self._log_result(False, f"Line {line_index} not found")
+            self._log_result(False, f"Line {line_index} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         line = lines[line_index]
@@ -839,14 +1070,75 @@ class AutoGrader:
             expected_y = function(actual_x)
             
             if np.allclose(actual_y, expected_y, atol=tolerance):
-                self._log_result(True, f"Y data matches expected function")
+                self._log_result(True, f"Y data matches expected function",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"Y data does not match expected function")
+                self._log_result(False, f"Y data does not match expected function",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
         except Exception as e:
-            self._log_result(False, f"Error evaluating function: {str(e)}")
+            self._log_result(False, f"Error evaluating function: {str(e)}",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
+    
+    def check_multiple_lines(self, min_lines: int = 1, fig_num: int = 1,
+                             custom_pass_feedback: Optional[str] = None,
+                             custom_fail_feedback: Optional[str] = None) -> bool:
+        """Check if plot has at least min_lines lines."""
+        if fig_num not in plt.get_fignums():
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        fig = plt.figure(fig_num)
+        ax = fig.gca()
+        lines = ax.get_lines()
+        
+        if len(lines) >= min_lines:
+            self._log_result(True, f"Plot has {len(lines)} lines (minimum: {min_lines})",
+                           custom_pass_feedback=custom_pass_feedback)
+            return True
+        else:
+            self._log_result(False, f"Plot has {len(lines)} lines, expected at least {min_lines}",
+                           custom_fail_feedback=custom_fail_feedback)
+            return False
+    
+    def check_function_any_line(self, function: Callable, min_length: int = 1, 
+                                tolerance: float = 1e-6, fig_num: int = 1,
+                                custom_pass_feedback: Optional[str] = None,
+                                custom_fail_feedback: Optional[str] = None) -> bool:
+        """Check if any line in the plot matches a function with at least min_length points."""
+        if fig_num not in plt.get_fignums():
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        fig = plt.figure(fig_num)
+        ax = fig.gca()
+        lines = ax.get_lines()
+        
+        import numpy as np
+        
+        for i, line in enumerate(lines):
+            actual_x = line.get_xdata()
+            actual_y = line.get_ydata()
+            
+            if len(actual_x) < min_length:
+                continue
+            
+            try:
+                expected_y = function(np.array(actual_x))
+                if np.allclose(actual_y, expected_y, atol=tolerance):
+                    self._log_result(True, f"Line {i} matches expected function with {len(actual_x)} points",
+                                   custom_pass_feedback=custom_pass_feedback)
+                    return True
+            except:
+                continue
+        
+        self._log_result(False, f"No line matches expected function with at least {min_length} points",
+                       custom_fail_feedback=custom_fail_feedback)
+        return False
     
     def get_plot_data(self, line_index: int = 0, fig_num: int = 1) -> Optional[Dict[str, Any]]:
         """Get plot data."""
@@ -870,10 +1162,13 @@ class AutoGrader:
             'label': line.get_label()
         }
     
-    def check_plot_color(self, expected_color: str, line_index: int = 0, fig_num: int = 1) -> bool:
+    def check_plot_color(self, expected_color: str, line_index: int = 0, fig_num: int = 1,
+                         custom_pass_feedback: Optional[str] = None,
+                         custom_fail_feedback: Optional[str] = None) -> bool:
         """Check plot color."""
         if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found")
+            self._log_result(False, f"Figure {fig_num} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         fig = plt.figure(fig_num)
@@ -881,7 +1176,8 @@ class AutoGrader:
         lines = ax.get_lines()
         
         if line_index >= len(lines):
-            self._log_result(False, f"Line {line_index} not found")
+            self._log_result(False, f"Line {line_index} not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         line = lines[line_index]
@@ -893,21 +1189,27 @@ class AutoGrader:
             actual_rgb = to_rgb(actual_color)
             
             if expected_rgb == actual_rgb:
-                self._log_result(True, f"Line color is {expected_color}")
+                self._log_result(True, f"Line color is {expected_color}",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             else:
-                self._log_result(False, f"Line color is {actual_color}, expected {expected_color}")
+                self._log_result(False, f"Line color is {actual_color}, expected {expected_color}",
+                               custom_fail_feedback=custom_fail_feedback)
                 return False
         except:
-            self._log_result(False, f"Could not compare colors")
+            self._log_result(False, f"Could not compare colors",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
     # ======================== CODE PATTERN CHECKING ========================
     
-    def check_code_contains(self, phrase: str, case_sensitive: bool = True) -> bool:
+    def check_code_contains(self, phrase: str, case_sensitive: bool = True,
+                            custom_pass_feedback: Optional[str] = None,
+                            custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if code contains a phrase."""
         if self._content is None:
-            self._log_result(False, "No code content available")
+            self._log_result(False, "No code content available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         search_content = self._content
@@ -918,16 +1220,21 @@ class AutoGrader:
             search_phrase = search_phrase.lower()
         
         if search_phrase in search_content:
-            self._log_result(True, f"Code contains '{phrase}'")
+            self._log_result(True, f"Code contains '{phrase}'",
+                           custom_pass_feedback=custom_pass_feedback)
             return True
         else:
-            self._log_result(False, f"Code does not contain '{phrase}'")
+            self._log_result(False, f"Code does not contain '{phrase}'",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
     
-    def check_operator_used(self, operator: str) -> bool:
+    def check_operator_used(self, operator: str,
+                            custom_pass_feedback: Optional[str] = None,
+                            custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if an operator is used."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         operator_map = {
@@ -941,102 +1248,134 @@ class AutoGrader:
         }
         
         if operator not in operator_map:
-            return self.check_code_contains(operator)
+            return self.check_code_contains(operator, 
+                                           custom_pass_feedback=custom_pass_feedback,
+                                           custom_fail_feedback=custom_fail_feedback)
         
         target_op = operator_map[operator]
         
         for node in ast.walk(self._ast_tree):
             if operator in ['+=', '-=', '*=', '/=', '//=', '%=', '**=']:
                 if isinstance(node, ast.AugAssign) and isinstance(node.op, target_op):
-                    self._log_result(True, f"Operator '{operator}' is used")
+                    self._log_result(True, f"Operator '{operator}' is used",
+                                   custom_pass_feedback=custom_pass_feedback)
                     return True
             elif isinstance(node, ast.BinOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
+                self._log_result(True, f"Operator '{operator}' is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             elif isinstance(node, ast.Compare):
                 for op in node.ops:
                     if isinstance(op, target_op):
-                        self._log_result(True, f"Operator '{operator}' is used")
+                        self._log_result(True, f"Operator '{operator}' is used",
+                                       custom_pass_feedback=custom_pass_feedback)
                         return True
             elif isinstance(node, ast.BoolOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
+                self._log_result(True, f"Operator '{operator}' is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
             elif isinstance(node, ast.UnaryOp) and isinstance(node.op, target_op):
-                self._log_result(True, f"Operator '{operator}' is used")
+                self._log_result(True, f"Operator '{operator}' is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
         
-        self._log_result(False, f"Operator '{operator}' is not used")
+        self._log_result(False, f"Operator '{operator}' is not used",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
     # ======================== CONTROL STRUCTURE CHECKING ========================
     
-    def check_for_loop_used(self) -> bool:
+    def check_for_loop_used(self,
+                            custom_pass_feedback: Optional[str] = None,
+                            custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a for loop is used."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         for node in ast.walk(self._ast_tree):
             if isinstance(node, ast.For):
-                self._log_result(True, "For loop is used")
+                self._log_result(True, "For loop is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
         
-        self._log_result(False, "For loop is not used")
+        self._log_result(False, "For loop is not used",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
-    def check_while_loop_used(self) -> bool:
+    def check_while_loop_used(self,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if a while loop is used."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         for node in ast.walk(self._ast_tree):
             if isinstance(node, ast.While):
-                self._log_result(True, "While loop is used")
+                self._log_result(True, "While loop is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
         
-        self._log_result(False, "While loop is not used")
+        self._log_result(False, "While loop is not used",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
-    def check_if_statement_used(self) -> bool:
+    def check_if_statement_used(self,
+                                custom_pass_feedback: Optional[str] = None,
+                                custom_fail_feedback: Optional[str] = None) -> bool:
         """Check if an if statement is used."""
         if self._ast_tree is None:
-            self._log_result(False, "AST not available")
+            self._log_result(False, "AST not available",
+                           custom_fail_feedback=custom_fail_feedback)
             return False
         
         for node in ast.walk(self._ast_tree):
             if isinstance(node, ast.If):
-                self._log_result(True, "If statement is used")
+                self._log_result(True, "If statement is used",
+                               custom_pass_feedback=custom_pass_feedback)
                 return True
         
-        self._log_result(False, "If statement is not used")
+        self._log_result(False, "If statement is not used",
+                       custom_fail_feedback=custom_fail_feedback)
         return False
     
-    def count_loop_iterations(self, loop_variable: str, expected_count: Optional[int] = None, tolerance: int = 0) -> Optional[int]:
+    def count_loop_iterations(self, loop_variable: str, expected_count: Optional[int] = None, 
+                              tolerance: int = 0,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> Optional[int]:
         """Count loop iterations by checking a counter variable."""
         if not self._execution_successful:
-            self._log_result(False, f"Cannot count iterations: script not executed")
+            self._log_result(False, f"Cannot count iterations: script not executed",
+                           custom_fail_feedback=custom_fail_feedback)
             return None
         
         if loop_variable not in self.captured_vars:
-            self._log_result(False, f"Loop counter variable '{loop_variable}' not found")
+            self._log_result(False, f"Loop counter variable '{loop_variable}' not found",
+                           custom_fail_feedback=custom_fail_feedback)
             return None
         
         actual_count = self.captured_vars[loop_variable]
         
         if not isinstance(actual_count, (int, float)):
-            self._log_result(False, f"Variable '{loop_variable}' is not a number")
+            self._log_result(False, f"Variable '{loop_variable}' is not a number",
+                           custom_fail_feedback=custom_fail_feedback)
             return None
         
         actual_count = int(actual_count)
         
         if expected_count is not None:
             if abs(actual_count - expected_count) <= tolerance:
-                self._log_result(True, f"Loop ran {actual_count} times")
+                self._log_result(True, f"Loop ran {actual_count} times",
+                               custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Loop ran {actual_count} times, expected {expected_count}")
+                self._log_result(False, f"Loop ran {actual_count} times, expected {expected_count}",
+                               custom_fail_feedback=custom_fail_feedback)
         else:
-            self._log_result(True, f"Loop counter '{loop_variable}' = {actual_count}")
+            self._log_result(True, f"Loop counter '{loop_variable}' = {actual_count}",
+                           custom_pass_feedback=custom_pass_feedback)
         
         return actual_count
     

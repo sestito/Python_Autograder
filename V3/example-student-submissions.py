@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Example student submissions for testing the AutoGrader GUI.
 Save each submission as a separate .py file to test with the application.
@@ -290,6 +291,7 @@ def calculate_stats(data):
 # ============================================================
 # EXAMPLE 11: assignment11_submission.py
 # For "Assignment 11 - Relations"
+# NOTE: Uses np.pi instead of the pi symbol to avoid encoding issues
 # ============================================================
 example11 = """
 # Assignment 11: Variable Relationships
@@ -300,14 +302,14 @@ import numpy as np
 # Create x values
 x = [0, 1, 2, 3, 4, 5]
 
-# Calculate y = cos(π * x)
+# Calculate y = cos(pi * x)
 y = [np.cos(np.pi * val) for val in x]
 
 # Calculate z = 2x + 1
 z = [2 * val + 1 for val in x]
 
 print(f"x = {x}")
-print(f"y (cos(π*x)) = {y}")
+print(f"y (cos(pi*x)) = {y}")
 print(f"z (2x+1) = {z}")
 """
 
@@ -364,21 +366,27 @@ if __name__ == "__main__":
         'assignment12_submission.py': example12,
     }
     
+    solutions = {
+        'solutions/assignment9_solution.py': solution9,
+        'solutions/assignment10_solution.py': solution10,
+    }
+    
     # Create solutions folder if it doesn't exist
     if not os.path.exists('solutions'):
         os.makedirs('solutions')
-        print("✓ Created solutions/ folder")
+        print("Created solutions/ folder")
     
-    # Create example submissions
+    # Create example submissions with explicit UTF-8 encoding
     for filename, content in examples.items():
-        with open(filename, 'w') as f:
+        with open(filename, 'w', encoding='utf-8') as f:
             f.write(content.strip())
-        print(f"✓ Created {filename}")
+        print(f"Created {filename}")
     
-    # Create solution file for assignment 9
-    with open('solutions/assignment9_solution.py', 'w') as f:
-        f.write(solution9.strip())
-    print(f"✓ Created solutions/assignment9_solution.py")
+    # Create solution files with explicit UTF-8 encoding
+    for filepath, content in solutions.items():
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content.strip())
+        print(f"Created {filepath}")
     
     print("\n" + "="*60)
     print("Example student submissions created successfully!")
@@ -392,4 +400,5 @@ if __name__ == "__main__":
     print("\nFiles created:")
     for filename in examples.keys():
         print(f"  - {filename}")
-    print(f"  - solutions/assignment9_solution.py")
+    for filepath in solutions.keys():
+        print(f"  - {filepath}")

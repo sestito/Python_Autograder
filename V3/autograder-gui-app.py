@@ -15,6 +15,7 @@ import getpass
 from datetime import datetime
 from pathlib import Path
 import sys
+import numpy as np
 
 # For PDF export
 try:
@@ -31,7 +32,7 @@ except ImportError:
 try:
     import embedded_resources
     EMBEDDED_MODE = True
-    print("✓ Embedded resources loaded successfully")
+    print("\u2713 Embedded resources loaded successfully")
 except ImportError as e:
     EMBEDDED_MODE = False
     print(f"WARNING: embedded_resources not found: {e}")
@@ -43,7 +44,7 @@ except Exception as e:
 # Import the AutoGrader class
 try:
     from autograder import AutoGrader
-    print("✓ AutoGrader class imported successfully")
+    print("\u2713 AutoGrader class imported successfully")
 except ImportError as e:
     print(f"ERROR: Could not import AutoGrader: {e}")
     print("Make sure autograder.py is in the same directory")
@@ -70,7 +71,7 @@ class AutoGraderGUI:
         try:
             self.computer_name = socket.gethostname()
             self.username = getpass.getuser()
-            print(f"✓ System info: {self.computer_name} ({self.username})")
+            print(f"\u2713 System info: {self.computer_name} ({self.username})")
         except Exception as e:
             print(f"WARNING: Could not get system info: {e}")
             self.computer_name = "Unknown"
@@ -94,7 +95,7 @@ class AutoGraderGUI:
         print("Creating widgets...")
         self.create_widgets()
         
-        print("✓ AutoGraderGUI initialization complete")
+        print("\u2713 AutoGraderGUI initialization complete")
         
     def load_config(self):
         """Load configuration from embedded resources"""
@@ -108,7 +109,7 @@ class AutoGraderGUI:
         try:
             self.config = embedded_resources.get_config_parser()
             self.debug_mode = self.config.getboolean('settings', 'debug', fallback=True)
-            print(f"✓ Config loaded (debug={self.debug_mode})")
+            print(f"\u2713 Config loaded (debug={self.debug_mode})")
             
         except Exception as e:
             print(f"ERROR loading config: {e}")
@@ -128,22 +129,22 @@ class AutoGraderGUI:
         try:
             # Get temporary Excel file from embedded resources
             self.excel_temp_file = embedded_resources.get_excel_file()
-            print(f"✓ Excel temp file created: {self.excel_temp_file}")
+            print(f"\u2713 Excel temp file created: {self.excel_temp_file}")
             
             # Read all sheets from the Excel file
             excel_file = pd.ExcelFile(self.excel_temp_file)
-            print(f"✓ Excel file opened, sheets: {excel_file.sheet_names}")
+            print(f"\u2713 Excel file opened, sheets: {excel_file.sheet_names}")
             
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name)
                 self.assignments[sheet_name] = df.to_dict('records')
-                print(f"  ✓ Loaded {len(df)} tests from '{sheet_name}'")
+                print(f"  \u2713 Loaded {len(df)} tests from '{sheet_name}'")
             
             if not self.assignments:
                 messagebox.showwarning("No Assignments", 
                     "No assignments found in embedded Excel file")
             else:
-                print(f"✓ Total assignments loaded: {len(self.assignments)}")
+                print(f"\u2713 Total assignments loaded: {len(self.assignments)}")
         
         except Exception as e:
             print(f"ERROR loading assignments: {e}")
@@ -155,8 +156,11 @@ class AutoGraderGUI:
     
     def __del__(self):
         """Cleanup temporary Excel file on exit"""
-        if self.excel_temp_file:
-            embedded_resources.cleanup_temp_file(self.excel_temp_file)
+        if hasattr(self, 'excel_temp_file') and self.excel_temp_file:
+            try:
+                embedded_resources.cleanup_temp_file(self.excel_temp_file)
+            except:
+                pass
     
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -309,7 +313,7 @@ class AutoGraderGUI:
             try:
                 from autograder import AutoGrader
             except ImportError as e:
-                raise Exception(f"AutoGrader module not found: {e}. Make sure autograder.py is in the same directory.")
+                raise Exception(f"AutoGrader module not found: {e}.")
             
             # Initialize grader
             self.grader = AutoGrader(self.selected_file.get(), timeout=15)
@@ -322,10 +326,10 @@ class AutoGraderGUI:
             success = self.grader.execute_script()
             
             if not success:
-                self.results_text.insert(tk.END, "\n✗ Script execution failed!\n", 'fail')
+                self.results_text.insert(tk.END, "\n\u2717 Script execution failed!\n", 'fail')
                 self.results_text.insert(tk.END, "Please check your code for errors.\n\n")
             else:
-                self.results_text.insert(tk.END, "✓ Script executed successfully!\n\n", 'pass')
+                self.results_text.insert(tk.END, "\u2713 Script executed successfully!\n\n", 'pass')
             
             # Run all tests from Excel
             self.results_text.insert(tk.END, "\n>>> Running tests...\n", 'header')
@@ -352,12 +356,18 @@ class AutoGraderGUI:
         for test in tests:
             test_type = test.get('test_type', '').lower()
             
+            # Get optional custom feedback messages
+            custom_pass_feedback = self.parse_string(test.get('pass_feedback'))
+            custom_fail_feedback = self.parse_string(test.get('fail_feedback'))
+            
             try:
                 if test_type == 'variable_value':
                     self.grader.check_variable_value(
                         test['variable_name'],
                         self.parse_value(test['expected_value']),
-                        tolerance=float(test.get('tolerance', 1e-6))
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'variable_type':
@@ -366,29 +376,61 @@ class AutoGraderGUI:
                         'list': list, 'dict': dict, 'tuple': tuple
                     }
                     expected_type = type_map.get(test['expected_value'], str)
-                    self.grader.check_variable_type(test['variable_name'], expected_type)
+                    self.grader.check_variable_type(
+                        test['variable_name'], 
+                        expected_type,
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'function_exists':
-                    self.grader.check_function_exists(test['function_name'])
+                    self.grader.check_function_exists(
+                        test['function_name'],
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'function_called':
-                    self.grader.check_function_called(test['function_name'])
+                    self.grader.check_function_called(
+                        test['function_name'],
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'function_not_called':
+                    self.grader.check_function_not_called(
+                        test['function_name'],
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'for_loop_used':
-                    self.grader.check_for_loop_used()
+                    self.grader.check_for_loop_used(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'while_loop_used':
-                    self.grader.check_while_loop_used()
+                    self.grader.check_while_loop_used(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'if_statement_used':
-                    self.grader.check_if_statement_used()
+                    self.grader.check_if_statement_used(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'operator_used':
-                    self.grader.check_operator_used(test['operator'])
+                    self.grader.check_operator_used(
+                        test['operator'],
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'code_contains':
                     case_sensitive = test.get('case_sensitive', True)
-                    # Handle various representations of boolean values
                     if isinstance(case_sensitive, str):
                         case_sensitive = case_sensitive.lower() in ['true', 'yes', '1']
                     elif pd.isna(case_sensitive):
@@ -396,32 +438,43 @@ class AutoGraderGUI:
                     
                     self.grader.check_code_contains(
                         test['phrase'],
-                        case_sensitive=bool(case_sensitive)
+                        case_sensitive=bool(case_sensitive),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'plot_created':
-                    self.grader.check_plot_created()
+                    self.grader.check_plot_created(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
                 
                 elif test_type == 'plot_properties':
                     self.grader.check_plot_properties(
-                        title=test.get('title'),
-                        xlabel=test.get('xlabel'),
-                        ylabel=test.get('ylabel'),
+                        title=self.parse_string(test.get('title')),
+                        xlabel=self.parse_string(test.get('xlabel')),
+                        ylabel=self.parse_string(test.get('ylabel')),
                         has_legend=self.parse_bool(test.get('has_legend')),
-                        has_grid=self.parse_bool(test.get('has_grid'))
+                        has_grid=self.parse_bool(test.get('has_grid')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'plot_data_length':
                     self.grader.check_plot_data_length(
                         min_length=self.parse_int(test.get('min_length')),
                         max_length=self.parse_int(test.get('max_length')),
-                        exact_length=self.parse_int(test.get('exact_length'))
+                        exact_length=self.parse_int(test.get('exact_length')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'loop_iterations':
                     self.grader.count_loop_iterations(
                         test['loop_variable'],
-                        expected_count=self.parse_int(test.get('expected_count'))
+                        expected_count=self.parse_int(test.get('expected_count')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'list_equals':
@@ -434,7 +487,9 @@ class AutoGraderGUI:
                         test['variable_name'],
                         expected_list,
                         order_matters=order_matters,
-                        tolerance=float(test.get('tolerance', 1e-6))
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'array_equals':
@@ -442,7 +497,9 @@ class AutoGraderGUI:
                     self.grader.check_array_equals(
                         test['variable_name'],
                         expected_array,
-                        tolerance=float(test.get('tolerance', 1e-6))
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'compare_solution':
@@ -450,17 +507,71 @@ class AutoGraderGUI:
                     variables_to_compare = self.parse_value(test.get('variables_to_compare'))
                     
                     if isinstance(variables_to_compare, str):
-                        # If it's a comma-separated string, split it
                         variables_to_compare = [v.strip() for v in variables_to_compare.split(',')]
                     
                     self.grader.compare_with_solution(
                         solution_file,
                         variables_to_compare,
-                        tolerance=float(test.get('tolerance', 1e-6))
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
                     )
                 
+                elif test_type == 'test_function_solution':
+                    solution_file = test.get('solution_file')
+                    test_inputs = self.parse_value(test.get('test_inputs'))
+                    
+                    if isinstance(test_inputs, str):
+                        test_inputs = eval(test_inputs, {'np': np, 'numpy': np})
+                    
+                    self.grader.test_function_with_solution(
+                        test['function_name'],
+                        solution_file,
+                        test_inputs,
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'check_relationship':
+                    relationship_str = test.get('relationship')
+                    relationship = eval(relationship_str, {'np': np, 'numpy': np})
+                    
+                    self.grader.check_variable_relationship(
+                        test['var1_name'],
+                        test['var2_name'],
+                        relationship,
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        description=self.parse_string(test.get('description')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'check_multiple_lines':
+                    self.grader.check_multiple_lines(
+                        min_lines=self.parse_int(test.get('min_lines', 1)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'check_function_any_line':
+                    function_str = test.get('function')
+                    function = eval(function_str, {'np': np, 'numpy': np})
+                    
+                    self.grader.check_function_any_line(
+                        function,
+                        min_length=self.parse_int(test.get('min_length', 1)),
+                        tolerance=float(test.get('tolerance', 1e-6)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                else:
+                    if test_type:
+                        self.results_text.insert(tk.END, f"\u2717 Unknown test type: {test_type}\n", 'fail')
+                
             except Exception as e:
-                self.results_text.insert(tk.END, f"✗ Error in test: {str(e)}\n", 'fail')
+                self.results_text.insert(tk.END, f"\u2717 Error in test: {str(e)}\n", 'fail')
     
     def parse_value(self, value):
         """Parse string value to appropriate Python type"""
@@ -469,11 +580,16 @@ class AutoGraderGUI:
         
         value_str = str(value).strip()
         
-        # Try to evaluate as Python literal
         try:
             return eval(value_str)
         except:
             return value_str
+    
+    def parse_string(self, value):
+        """Parse value to string or None"""
+        if pd.isna(value):
+            return None
+        return str(value).strip() if value else None
     
     def parse_bool(self, value):
         """Parse string to boolean or None"""
@@ -508,48 +624,28 @@ class AutoGraderGUI:
         self.results_text.insert(tk.END, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         self.results_text.insert(tk.END, "="*70 + "\n")
         
-        # Capture output and display in GUI
         self.capture_grader_output()
     
     def capture_grader_output(self):
         """Redirect grader print statements to GUI"""
-        import sys
         from io import StringIO
-        
-        # Store original stdout
-        original_stdout = sys.stdout
-        
-        # Create string buffer
         sys.stdout = StringIO()
-        
-        # After grader runs, restore and get output
-        def restore_output():
-            output = sys.stdout.getvalue()
-            sys.stdout = original_stdout
-            return output
-        
-        # Store for later use
-        self.restore_output = restore_output
     
     def display_summary(self):
         """Display test summary"""
         summary = self.grader.get_summary()
         
-        # Get captured output
-        import sys
         output = sys.stdout.getvalue()
-        sys.stdout = sys.__stdout__  # Restore original stdout
+        sys.stdout = sys.__stdout__
         
-        # Display all test output
         for line in output.split('\n'):
-            if '✓ PASS' in line or 'PASS:' in line:
+            if '\u2713 PASS' in line or 'PASS:' in line:
                 self.results_text.insert(tk.END, line + '\n', 'pass')
-            elif '✗ FAIL' in line or 'FAIL:' in line:
+            elif '\u2717 FAIL' in line or 'FAIL:' in line:
                 self.results_text.insert(tk.END, line + '\n', 'fail')
             else:
                 self.results_text.insert(tk.END, line + '\n')
         
-        # Display summary
         self.results_text.insert(tk.END, "\n" + "="*70 + "\n", 'header')
         self.results_text.insert(tk.END, "SUMMARY\n", 'header')
         self.results_text.insert(tk.END, "="*70 + "\n", 'header')
@@ -564,7 +660,7 @@ class AutoGraderGUI:
         try:
             if not self.config:
                 if self.debug_mode:
-                    self.results_text.insert(tk.END, "\nNote: Email not configured. Results not sent.\n")
+                    self.results_text.insert(tk.END, "\nNote: Email not configured.\n")
                 return
             
             sender_email = self.config.get('email', 'sender_email', fallback='')
@@ -573,20 +669,17 @@ class AutoGraderGUI:
             
             if not sender_email or not sender_password or not instructor_email:
                 if self.debug_mode:
-                    self.results_text.insert(tk.END, "\nNote: Email not fully configured. Results not sent.\n")
+                    self.results_text.insert(tk.END, "\nNote: Email not fully configured.\n")
                 return
             
-            # Create message
             msg = MIMEMultipart()
             msg['From'] = sender_email
             msg['To'] = instructor_email
             
-            # Format: Assignment Name, Student Name, Date, Time
             timestamp = datetime.now()
             subject = f"{self.selected_assignment.get()}, {self.student_name.get()}, {timestamp.strftime('%Y-%m-%d')}, {timestamp.strftime('%H:%M:%S')}"
             msg['Subject'] = subject
             
-            # Email body
             body = f"""
 AutoGrader Submission
 
@@ -601,7 +694,6 @@ Results:
 """
             msg.attach(MIMEText(body, 'plain'))
             
-            # Attach student's file
             with open(self.selected_file.get(), 'rb') as f:
                 part = MIMEBase('application', 'octet-stream')
                 part.set_payload(f.read())
@@ -612,7 +704,6 @@ Results:
                 )
                 msg.attach(part)
             
-            # Send email
             smtp_server = self.config.get('email', 'smtp_server')
             smtp_port = self.config.getint('email', 'smtp_port')
             
@@ -622,11 +713,11 @@ Results:
                 server.send_message(msg)
             
             if self.debug_mode:
-                self._results_text.insert(tk.END, "\n✓ Results emailed to instructor!\n", 'pass')
+                self.results_text.insert(tk.END, "\n\u2713 Results emailed to instructor!\n", 'pass')
             
         except Exception as e:
             if self.debug_mode:
-                self.results_text.insert(tk.END, f"\n✗ Failed to send email: {str(e)}\n", 'fail')
+                self.results_text.insert(tk.END, f"\n\u2717 Failed to send email: {str(e)}\n", 'fail')
     
     def export_to_pdf(self):
         """Export code and results to PDF"""
@@ -640,7 +731,6 @@ Results:
             return
         
         try:
-            # Ask where to save PDF
             pdf_filename = filedialog.asksaveasfilename(
                 defaultextension=".pdf",
                 filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
@@ -650,16 +740,13 @@ Results:
             if not pdf_filename:
                 return
             
-            # Create PDF
             doc = SimpleDocTemplate(pdf_filename, pagesize=letter,
                                   rightMargin=72, leftMargin=72,
                                   topMargin=72, bottomMargin=18)
             
-            # Container for PDF elements
             elements = []
-            
-            # Styles
             styles = getSampleStyleSheet()
+            
             title_style = ParagraphStyle(
                 'CustomTitle',
                 parent=styles['Heading1'],
@@ -678,11 +765,9 @@ Results:
                 spaceBefore=12
             )
             
-            # Title
             elements.append(Paragraph("AutoGrader Results", title_style))
             elements.append(Spacer(1, 0.2*inch))
             
-            # Student Information
             summary = self.grader.get_summary()
             info_text = f"""
             <b>Student:</b> {self.student_name.get()}<br/>
@@ -696,7 +781,6 @@ Results:
             elements.append(Paragraph(info_text, styles['Normal']))
             elements.append(Spacer(1, 0.3*inch))
             
-            # Student Code Section
             elements.append(Paragraph("Student Code", heading_style))
             with open(self.selected_file.get(), 'r', encoding='utf-8') as f:
                 code_content = f.read()
@@ -712,12 +796,10 @@ Results:
             elements.append(Preformatted(code_content, code_style))
             elements.append(Spacer(1, 0.3*inch))
             
-            # Results Section
             elements.append(Paragraph("AutoGrader Results", heading_style))
             results_content = self.results_text.get(1.0, tk.END)
             elements.append(Preformatted(results_content, code_style))
             
-            # Build PDF
             doc.build(elements)
             
             messagebox.showinfo("Success", f"PDF exported successfully to:\n{pdf_filename}")
@@ -737,12 +819,12 @@ def main():
     try:
         print("Starting AutoGrader GUI...")
         root = tk.Tk()
-        print("✓ Tk root window created")
+        print("\u2713 Tk root window created")
         
         app = AutoGraderGUI(root)
-        print("✓ AutoGraderGUI initialized")
+        print("\u2713 AutoGraderGUI initialized")
         
-        print("✓ Starting main loop...")
+        print("\u2713 Starting main loop...")
         root.mainloop()
         
     except Exception as e:
@@ -754,4 +836,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
