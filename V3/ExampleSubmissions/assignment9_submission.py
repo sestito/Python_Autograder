@@ -11,6 +11,9 @@ result = sum(data)
 sum_total = result
 average = process_data(data)
 
+for item in data:
+    print(f"Processing: {item}")
+
 print(f"Data: {data}")
 print(f"Result (sum): {result}")
 print(f"Sum total: {sum_total}")

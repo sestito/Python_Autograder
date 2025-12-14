@@ -1,5 +1,6 @@
 # Assignment 12: Advanced Plotting
 # Student: Test Student
+# NOTE: Must create x values WITHOUT using np.linspace!
 
 import numpy as np
 import matplotlib.pyplot as plt

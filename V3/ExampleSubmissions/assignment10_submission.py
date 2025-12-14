@@ -1,5 +1,6 @@
 # Assignment 10: Advanced Function Testing
 # Student: Test Student
+# NOTE: Must calculate mean manually - cannot use np.mean!
 
 import numpy as np
 
@@ -10,10 +11,16 @@ def calculate_stats(data):
         data = data.tolist()
     
     # Calculate mean manually
-    mean = sum(data) / len(data)
+    total = 0
+    for val in data:
+        total += val
+    mean = total / len(data)
     
     # Calculate standard deviation manually
-    variance = sum((x - mean)**2 for x in data) / len(data)
+    variance_sum = 0
+    for val in data:
+        variance_sum += (val - mean)**2
+    variance = variance_sum / len(data)
     std = variance ** 0.5
     
     return mean, std

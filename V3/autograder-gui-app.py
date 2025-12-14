@@ -391,15 +391,23 @@ class AutoGraderGUI:
                     )
                 
                 elif test_type == 'function_called':
+                    match_any_prefix = self.parse_bool(test.get('match_any_prefix', False))
+                    if match_any_prefix is None:
+                        match_any_prefix = False
                     self.grader.check_function_called(
                         test['function_name'],
+                        match_any_prefix=match_any_prefix,
                         custom_pass_feedback=custom_pass_feedback,
                         custom_fail_feedback=custom_fail_feedback
                     )
                 
                 elif test_type == 'function_not_called':
+                    match_any_prefix = self.parse_bool(test.get('match_any_prefix', False))
+                    if match_any_prefix is None:
+                        match_any_prefix = False
                     self.grader.check_function_not_called(
                         test['function_name'],
+                        match_any_prefix=match_any_prefix,
                         custom_pass_feedback=custom_pass_feedback,
                         custom_fail_feedback=custom_fail_feedback
                     )
@@ -509,10 +517,15 @@ class AutoGraderGUI:
                     if isinstance(variables_to_compare, str):
                         variables_to_compare = [v.strip() for v in variables_to_compare.split(',')]
                     
+                    require_same_type = self.parse_bool(test.get('require_same_type', False))
+                    if require_same_type is None:
+                        require_same_type = False
+                    
                     self.grader.compare_with_solution(
                         solution_file,
                         variables_to_compare,
                         tolerance=float(test.get('tolerance', 1e-6)),
+                        require_same_type=require_same_type,
                         custom_pass_feedback=custom_pass_feedback,
                         custom_fail_feedback=custom_fail_feedback
                     )
@@ -566,6 +579,89 @@ class AutoGraderGUI:
                         custom_fail_feedback=custom_fail_feedback
                     )
                 
+                elif test_type == 'array_size':
+                    self.grader.check_array_size(
+                        test['variable_name'],
+                        min_size=self.parse_int(test.get('min_size')),
+                        max_size=self.parse_int(test.get('max_size')),
+                        exact_size=self.parse_int(test.get('exact_size')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'array_values_in_range':
+                    self.grader.check_array_values_in_range(
+                        test['variable_name'],
+                        min_value=self.parse_float(test.get('min_value')),
+                        max_value=self.parse_float(test.get('max_value')),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_has_xlabel':
+                    self.grader.check_plot_has_xlabel(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_has_ylabel':
+                    self.grader.check_plot_has_ylabel(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_has_title':
+                    self.grader.check_plot_has_title(
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_line_style':
+                    self.grader.check_plot_line_style(
+                        test['expected_style'],
+                        line_index=self.parse_int(test.get('line_index', 0)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_has_line_style':
+                    self.grader.check_plot_has_line_style(
+                        test['expected_style'],
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_line_width':
+                    self.grader.check_plot_line_width(
+                        float(test['expected_width']),
+                        line_index=self.parse_int(test.get('line_index', 0)),
+                        tolerance=float(test.get('tolerance', 0.1)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'plot_marker_size':
+                    self.grader.check_plot_marker_size(
+                        float(test['expected_size']),
+                        line_index=self.parse_int(test.get('line_index', 0)),
+                        tolerance=float(test.get('tolerance', 0.5)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
+                elif test_type == 'compare_plot_solution':
+                    self.grader.compare_plot_with_solution(
+                        test['solution_file'],
+                        line_index=self.parse_int(test.get('line_index', 0)),
+                        check_color=self.parse_bool(test.get('check_color', True)),
+                        check_linestyle=self.parse_bool(test.get('check_linestyle', True)),
+                        check_linewidth=self.parse_bool(test.get('check_linewidth', True)),
+                        check_marker=self.parse_bool(test.get('check_marker', True)),
+                        check_markersize=self.parse_bool(test.get('check_markersize', True)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
                 else:
                     if test_type:
                         self.results_text.insert(tk.END, f"\u2717 Unknown test type: {test_type}\n", 'fail')
@@ -608,6 +704,15 @@ class AutoGraderGUI:
             return None
         try:
             return int(float(value))
+        except:
+            return None
+    
+    def parse_float(self, value):
+        """Parse string to float or None"""
+        if pd.isna(value):
+            return None
+        try:
+            return float(value)
         except:
             return None
     

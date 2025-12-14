@@ -3,8 +3,15 @@
 Script to create an example assignments.xlsx file with sample assignments and tests.
 Run this script once to generate the Excel file.
 
-NEW: Each test can now include optional 'pass_feedback' and 'fail_feedback' columns
-for custom messages that override the default feedback.
+Includes examples for all test types including new features:
+- array_size: Check array/list size
+- array_values_in_range: Check values are within bounds
+- match_any_prefix: Catch function calls with any prefix
+- plot_has_xlabel/ylabel/title: Check for any label (not specific text)
+- plot_line_style, plot_has_line_style: Check line styles like 'b-', 'r--', 'g*'
+- plot_line_width, plot_marker_size: Check line/marker sizes
+- compare_plot_solution: Compare plot properties with solution
+- require_same_type: Require list vs numpy array match in comparisons
 """
 
 import pandas as pd
@@ -26,8 +33,8 @@ assignment1_tests = [
         'expected_value': 20,
         'tolerance': 0.0,
         'description': 'Variable y should equal 20',
-        'pass_feedback': '',  # Empty = use default
-        'fail_feedback': 'Check that y is set to 20'
+        'pass_feedback': '',
+        'fail_feedback': ''
     },
     {
         'test_type': 'variable_value',
@@ -35,8 +42,8 @@ assignment1_tests = [
         'expected_value': 30,
         'tolerance': 0.0,
         'description': 'sum_xy should equal 30',
-        'pass_feedback': 'Correct! sum_xy = x + y = 30',
-        'fail_feedback': 'sum_xy should be the sum of x and y'
+        'pass_feedback': '',
+        'fail_feedback': ''
     },
     {
         'test_type': 'variable_type',
@@ -44,14 +51,14 @@ assignment1_tests = [
         'expected_value': 'str',
         'description': 'message should be a string',
         'pass_feedback': '',
-        'fail_feedback': 'The message variable should be a string (text in quotes)'
+        'fail_feedback': ''
     },
     {
         'test_type': 'operator_used',
         'operator': '+',
         'description': 'Should use + operator',
         'pass_feedback': '',
-        'fail_feedback': 'Remember to use the + operator for addition'
+        'fail_feedback': ''
     }
 ]
 
@@ -60,21 +67,21 @@ assignment2_tests = [
     {
         'test_type': 'for_loop_used',
         'description': 'Should use a for loop',
-        'pass_feedback': '',
-        'fail_feedback': 'This assignment requires using a for loop'
+        'pass_feedback': 'Good use of a for loop!',
+        'fail_feedback': 'You need to use a for loop for this assignment'
     },
     {
         'test_type': 'if_statement_used',
         'description': 'Should use an if statement',
         'pass_feedback': '',
-        'fail_feedback': 'Include an if statement in your code'
+        'fail_feedback': ''
     },
     {
         'test_type': 'operator_used',
         'operator': '+=',
         'description': 'Should use += operator',
         'pass_feedback': '',
-        'fail_feedback': 'Use the += operator to increment values'
+        'fail_feedback': ''
     },
     {
         'test_type': 'loop_iterations',
@@ -91,7 +98,7 @@ assignment2_tests = [
         'tolerance': 0.0,
         'description': 'total should equal sum of 0-99',
         'pass_feedback': '',
-        'fail_feedback': 'The total should be the sum of numbers 0 through 99'
+        'fail_feedback': ''
     }
 ]
 
@@ -102,21 +109,21 @@ assignment3_tests = [
         'function_name': 'calculate_average',
         'description': 'Function calculate_average should exist',
         'pass_feedback': '',
-        'fail_feedback': 'Define a function named calculate_average'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_exists',
         'function_name': 'find_maximum',
         'description': 'Function find_maximum should exist',
         'pass_feedback': '',
-        'fail_feedback': 'Define a function named find_maximum'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_called',
         'function_name': 'calculate_average',
         'description': 'calculate_average should be called',
         'pass_feedback': '',
-        'fail_feedback': 'Make sure to call calculate_average() in your code'
+        'fail_feedback': ''
     },
     {
         'test_type': 'variable_value',
@@ -125,7 +132,7 @@ assignment3_tests = [
         'tolerance': 0.1,
         'description': 'avg_result should be approximately 5.5',
         'pass_feedback': '',
-        'fail_feedback': 'The average of [1,2,3,4,5,6,7,8,9,10] should be 5.5'
+        'fail_feedback': ''
     }
 ]
 
@@ -136,14 +143,14 @@ assignment4_tests = [
         'function_name': 'np.mean',
         'description': 'Should use np.mean()',
         'pass_feedback': '',
-        'fail_feedback': 'Use np.mean() to calculate the mean'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_called',
         'function_name': 'np.std',
         'description': 'Should use np.std()',
         'pass_feedback': '',
-        'fail_feedback': 'Use np.std() to calculate standard deviation'
+        'fail_feedback': ''
     },
     {
         'test_type': 'code_contains',
@@ -151,7 +158,7 @@ assignment4_tests = [
         'case_sensitive': 'false',
         'description': 'Should import numpy',
         'pass_feedback': '',
-        'fail_feedback': 'Add "import numpy as np" at the top of your file'
+        'fail_feedback': ''
     },
     {
         'test_type': 'variable_type',
@@ -179,34 +186,34 @@ assignment5_tests = [
         'function_name': 'plt.plot',
         'description': 'Should use plt.plot()',
         'pass_feedback': '',
-        'fail_feedback': 'Use plt.plot() to create your line plot'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_called',
         'function_name': 'plt.xlabel',
         'description': 'Should use plt.xlabel()',
         'pass_feedback': '',
-        'fail_feedback': 'Add an x-axis label with plt.xlabel()'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_called',
         'function_name': 'plt.ylabel',
         'description': 'Should use plt.ylabel()',
         'pass_feedback': '',
-        'fail_feedback': 'Add a y-axis label with plt.ylabel()'
+        'fail_feedback': ''
     },
     {
         'test_type': 'function_called',
         'function_name': 'plt.title',
         'description': 'Should use plt.title()',
         'pass_feedback': '',
-        'fail_feedback': 'Add a title with plt.title()'
+        'fail_feedback': ''
     },
     {
         'test_type': 'plot_created',
         'description': 'Should create a plot',
         'pass_feedback': '',
-        'fail_feedback': 'Your code should create a matplotlib plot'
+        'fail_feedback': ''
     },
     {
         'test_type': 'plot_properties',
@@ -216,15 +223,15 @@ assignment5_tests = [
         'has_legend': 'true',
         'has_grid': 'true',
         'description': 'Plot should have correct labels and properties',
-        'pass_feedback': 'All plot properties are correct!',
-        'fail_feedback': 'Check your plot title, labels, legend, and grid settings'
+        'pass_feedback': '',
+        'fail_feedback': ''
     },
     {
         'test_type': 'plot_data_length',
         'min_length': 50,
         'description': 'Plot should have at least 50 data points',
         'pass_feedback': '',
-        'fail_feedback': 'Generate at least 50 data points for your plot'
+        'fail_feedback': ''
     }
 ]
 
@@ -236,7 +243,7 @@ assignment6_tests = [
         'case_sensitive': 'true',
         'description': 'Should use .format() for string formatting',
         'pass_feedback': '',
-        'fail_feedback': 'Use the .format() method for string formatting'
+        'fail_feedback': ''
     },
     {
         'test_type': 'variable_type',
@@ -252,7 +259,7 @@ assignment6_tests = [
         'case_sensitive': 'true',
         'description': 'Should use {} placeholders',
         'pass_feedback': '',
-        'fail_feedback': 'Use {} as placeholders in your format string'
+        'fail_feedback': ''
     }
 ]
 
@@ -262,7 +269,7 @@ assignment7_tests = [
         'test_type': 'while_loop_used',
         'description': 'Should use a while loop',
         'pass_feedback': '',
-        'fail_feedback': 'This assignment requires a while loop, not a for loop'
+        'fail_feedback': ''
     },
     {
         'test_type': 'operator_used',
@@ -277,7 +284,7 @@ assignment7_tests = [
         'expected_count': 10,
         'description': 'While loop should iterate 10 times',
         'pass_feedback': '',
-        'fail_feedback': 'Your while loop should run exactly 10 times'
+        'fail_feedback': ''
     },
     {
         'test_type': 'if_statement_used',
@@ -297,7 +304,7 @@ assignment8_tests = [
         'tolerance': 0.0,
         'description': 'List should equal [1, 2, 3, 4, 5] with order',
         'pass_feedback': '',
-        'fail_feedback': 'my_list should be [1, 2, 3, 4, 5] in that exact order'
+        'fail_feedback': ''
     },
     {
         'test_type': 'list_equals',
@@ -335,6 +342,7 @@ assignment9_tests = [
         'solution_file': 'solutions/assignment9_solution.py',
         'variables_to_compare': 'result, sum_total, average',
         'tolerance': 0.001,
+        'require_same_type': 'false',
         'description': 'Compare key variables with solution file',
         'pass_feedback': 'Your solution matches the expected output!',
         'fail_feedback': 'Your variable values differ from the expected solution'
@@ -370,27 +378,20 @@ assignment10_tests = [
         'test_inputs': "[{'args': [[1, 2, 3, 4, 5]]}, {'args': [[10, 20, 30]]}, {'args': [np.array([5, 10, 15])]}]",
         'tolerance': 0.01,
         'description': 'Test function with lists and arrays against solution',
-        'pass_feedback': 'Your calculate_stats function produces correct results!',
-        'fail_feedback': 'Your calculate_stats function does not match expected output'
-    },
-    {
-        'test_type': 'function_not_called',
-        'function_name': 'np.mean',
-        'description': 'Should NOT use np.mean - must calculate manually',
-        'pass_feedback': 'Good - you calculated the mean manually!',
-        'fail_feedback': 'Do not use np.mean() - calculate the mean yourself'
-    },
-    {
-        'test_type': 'function_not_called',
-        'function_name': 'numpy.mean',
-        'description': 'Should NOT use numpy.mean',
         'pass_feedback': '',
-        'fail_feedback': 'Do not use numpy.mean() - calculate manually'
+        'fail_feedback': ''
+    },
+    {
+        'test_type': 'function_not_called',
+        'function_name': 'mean',
+        'match_any_prefix': 'true',
+        'description': 'Should NOT use mean() with any prefix (np.mean, numpy.mean, etc.)',
+        'pass_feedback': 'Good - you calculated the mean manually!',
+        'fail_feedback': 'Do not use np.mean or any mean() function - calculate it manually'
     }
 ]
 
 # ===== ASSIGNMENT 11: Variable Relationships =====
-# NOTE: Using "pi" in description instead of the symbol to avoid encoding issues
 assignment11_tests = [
     {
         'test_type': 'variable_value',
@@ -408,7 +409,7 @@ assignment11_tests = [
         'relationship': 'lambda x: np.cos(np.pi * x)',
         'tolerance': 0.001,
         'description': 'y should equal cos(pi * x)',
-        'pass_feedback': 'Correct! y = cos(pi * x)',
+        'pass_feedback': '',
         'fail_feedback': 'y should be calculated as cos(pi * x) for each value in x'
     },
     {
@@ -468,15 +469,191 @@ assignment12_tests = [
     },
     {
         'test_type': 'function_not_called',
-        'function_name': 'np.linspace',
-        'description': 'Should NOT use np.linspace',
-        'pass_feedback': 'Good - you created x values without np.linspace!',
-        'fail_feedback': 'Do not use np.linspace - create x values another way (e.g., list comprehension)'
+        'function_name': 'linspace',
+        'match_any_prefix': 'true',
+        'description': 'Should NOT use linspace with any prefix',
+        'pass_feedback': 'Good - you created x values without linspace!',
+        'fail_feedback': 'Do not use np.linspace or any linspace() - create x values another way'
+    }
+]
+
+# ===== ASSIGNMENT 13: Array Size and Range (NEW) =====
+assignment13_tests = [
+    {
+        'test_type': 'array_size',
+        'variable_name': 'x_values',
+        'min_size': 100,
+        'description': 'x_values should have at least 100 elements',
+        'pass_feedback': 'Good - your array has enough data points!',
+        'fail_feedback': 'Your x_values array needs at least 100 elements'
+    },
+    {
+        'test_type': 'array_size',
+        'variable_name': 'small_sample',
+        'exact_size': 10,
+        'description': 'small_sample should have exactly 10 elements',
+        'pass_feedback': '',
+        'fail_feedback': 'small_sample must have exactly 10 elements'
+    },
+    {
+        'test_type': 'array_values_in_range',
+        'variable_name': 'x_values',
+        'min_value': 0,
+        'max_value': 10,
+        'description': 'All x_values should be between 0 and 10',
+        'pass_feedback': 'All values are within the expected range!',
+        'fail_feedback': 'Some values in x_values are outside the range [0, 10]'
+    },
+    {
+        'test_type': 'array_values_in_range',
+        'variable_name': 'probabilities',
+        'min_value': 0,
+        'max_value': 1,
+        'description': 'Probabilities should be between 0 and 1',
+        'pass_feedback': '',
+        'fail_feedback': 'Probabilities must be between 0 and 1'
     },
     {
         'test_type': 'function_not_called',
-        'function_name': 'numpy.linspace',
-        'description': 'Should NOT use numpy.linspace',
+        'function_name': 'linspace',
+        'match_any_prefix': 'true',
+        'description': 'Should NOT use linspace (any prefix)',
+        'pass_feedback': '',
+        'fail_feedback': ''
+    },
+    {
+        'test_type': 'function_called',
+        'function_name': 'arange',
+        'match_any_prefix': 'true',
+        'description': 'Should use arange (any prefix like np.arange)',
+        'pass_feedback': '',
+        'fail_feedback': 'Use np.arange or similar to create your array'
+    }
+]
+
+# ===== ASSIGNMENT 14: Plot Styling (NEW) =====
+assignment14_tests = [
+    {
+        'test_type': 'plot_created',
+        'description': 'Should create a plot',
+        'pass_feedback': '',
+        'fail_feedback': ''
+    },
+    {
+        'test_type': 'plot_has_xlabel',
+        'description': 'Plot must have an x-axis label (any text)',
+        'pass_feedback': 'Good - your plot has an x-axis label!',
+        'fail_feedback': 'Add an x-axis label using plt.xlabel()'
+    },
+    {
+        'test_type': 'plot_has_ylabel',
+        'description': 'Plot must have a y-axis label (any text)',
+        'pass_feedback': 'Good - your plot has a y-axis label!',
+        'fail_feedback': 'Add a y-axis label using plt.ylabel()'
+    },
+    {
+        'test_type': 'plot_has_title',
+        'description': 'Plot must have a title (any text)',
+        'pass_feedback': '',
+        'fail_feedback': 'Add a title using plt.title()'
+    },
+    {
+        'test_type': 'plot_line_style',
+        'expected_style': 'b-',
+        'line_index': 0,
+        'description': 'First line should be solid blue (b-)',
+        'pass_feedback': 'Correct - first line is solid blue!',
+        'fail_feedback': 'First line should be solid blue. Use plt.plot(x, y, "b-")'
+    },
+    {
+        'test_type': 'plot_has_line_style',
+        'expected_style': 'r--',
+        'description': 'Plot should have a red dashed line (r--)',
+        'pass_feedback': '',
+        'fail_feedback': 'Add a red dashed line using "r--" style'
+    },
+    {
+        'test_type': 'plot_has_line_style',
+        'expected_style': 'g*',
+        'description': 'Plot should have green star markers (g*)',
+        'pass_feedback': '',
+        'fail_feedback': 'Add a line with green star markers using "g*" style'
+    },
+    {
+        'test_type': 'plot_line_width',
+        'expected_width': 2.0,
+        'line_index': 0,
+        'tolerance': 0.1,
+        'description': 'First line should have width 2.0',
+        'pass_feedback': '',
+        'fail_feedback': 'Set the first line width to 2.0 using linewidth=2.0'
+    },
+    {
+        'test_type': 'plot_marker_size',
+        'expected_size': 10,
+        'line_index': 2,
+        'tolerance': 1.0,
+        'description': 'Third line markers should be size 10',
+        'pass_feedback': '',
+        'fail_feedback': 'Set marker size to 10 using markersize=10'
+    }
+]
+
+# ===== ASSIGNMENT 15: Type-Strict Comparison (NEW) =====
+assignment15_tests = [
+    {
+        'test_type': 'compare_solution',
+        'solution_file': 'solutions/assignment15_solution.py',
+        'variables_to_compare': 'result_list, result_array',
+        'tolerance': 0.001,
+        'require_same_type': 'true',
+        'description': 'Compare with solution - types must match exactly',
+        'pass_feedback': 'All variables match with correct types!',
+        'fail_feedback': 'Variables must match AND be the same type (list vs numpy array)'
+    },
+    {
+        'test_type': 'variable_type',
+        'variable_name': 'result_list',
+        'expected_value': 'list',
+        'description': 'result_list must be a Python list',
+        'pass_feedback': '',
+        'fail_feedback': 'result_list should be a Python list, not a numpy array'
+    },
+    {
+        'test_type': 'array_size',
+        'variable_name': 'result_array',
+        'min_size': 50,
+        'description': 'result_array should have at least 50 elements',
+        'pass_feedback': '',
+        'fail_feedback': ''
+    }
+]
+
+# ===== ASSIGNMENT 16: Plot Solution Comparison (NEW) =====
+assignment16_tests = [
+    {
+        'test_type': 'plot_created',
+        'description': 'Should create a plot',
+        'pass_feedback': '',
+        'fail_feedback': ''
+    },
+    {
+        'test_type': 'compare_plot_solution',
+        'solution_file': 'solutions/assignment16_solution.py',
+        'line_index': 0,
+        'check_color': 'true',
+        'check_linestyle': 'true',
+        'check_linewidth': 'true',
+        'check_marker': 'false',
+        'check_markersize': 'false',
+        'description': 'Line 0 style should match solution',
+        'pass_feedback': 'Your plot styling matches the solution!',
+        'fail_feedback': 'Your line color, style, or width differs from the solution'
+    },
+    {
+        'test_type': 'check_multiple_lines',
+        'min_lines': 2,
+        'description': 'Should have at least 2 lines',
         'pass_feedback': '',
         'fail_feedback': ''
     }
@@ -496,31 +673,41 @@ with pd.ExcelWriter('assignments.xlsx', engine='openpyxl') as writer:
     pd.DataFrame(assignment10_tests).to_excel(writer, sheet_name='Assignment 10 - Func Test', index=False)
     pd.DataFrame(assignment11_tests).to_excel(writer, sheet_name='Assignment 11 - Relations', index=False)
     pd.DataFrame(assignment12_tests).to_excel(writer, sheet_name='Assignment 12 - Adv Plot', index=False)
+    pd.DataFrame(assignment13_tests).to_excel(writer, sheet_name='Assignment 13 - Array Size', index=False)
+    pd.DataFrame(assignment14_tests).to_excel(writer, sheet_name='Assignment 14 - Plot Style', index=False)
+    pd.DataFrame(assignment15_tests).to_excel(writer, sheet_name='Assignment 15 - Type Match', index=False)
+    pd.DataFrame(assignment16_tests).to_excel(writer, sheet_name='Assignment 16 - Plot Soln', index=False)
 
-print("assignments.xlsx created successfully!")
-print("\nCreated assignments:")
-print("  - Assignment 1 - Variables")
-print("  - Assignment 2 - Loops")
-print("  - Assignment 3 - Functions")
-print("  - Assignment 4 - NumPy")
-print("  - Assignment 5 - Plotting")
-print("  - Assignment 6 - Strings")
-print("  - Assignment 7 - While Loops")
-print("  - Assignment 8 - Lists")
-print("  - Assignment 9 - Solution")
-print("  - Assignment 10 - Func Test")
-print("  - Assignment 11 - Relations")
-print("  - Assignment 12 - Adv Plot")
-print("\nYou can now use this file with the AutoGrader GUI application.")
+print("Created assignments.xlsx successfully!")
+print("\nAssignments included:")
+print("  1.  Assignment 1 - Variables")
+print("  2.  Assignment 2 - Loops")
+print("  3.  Assignment 3 - Functions")
+print("  4.  Assignment 4 - NumPy")
+print("  5.  Assignment 5 - Plotting")
+print("  6.  Assignment 6 - Strings")
+print("  7.  Assignment 7 - While Loops")
+print("  8.  Assignment 8 - Lists")
+print("  9.  Assignment 9 - Solution Comparison")
+print("  10. Assignment 10 - Function Testing")
+print("  11. Assignment 11 - Variable Relations")
+print("  12. Assignment 12 - Advanced Plotting")
+print("  13. Assignment 13 - Array Size/Range (NEW)")
+print("  14. Assignment 14 - Plot Styling (NEW)")
+print("  15. Assignment 15 - Type-Strict Comparison (NEW)")
+print("  16. Assignment 16 - Plot Solution Comparison (NEW)")
 print("\n" + "="*60)
-print("NEW FEATURES:")
+print("NEW TEST TYPES DEMONSTRATED:")
 print("="*60)
-print("\n1. Custom Feedback Columns:")
-print("   Each test can now include 'pass_feedback' and 'fail_feedback'")
-print("   columns for custom messages. Leave empty for default messages.")
-print("\n2. New Test Types Supported:")
-print("   - test_function_solution: Test function against solution file")
-print("   - check_relationship: Verify mathematical relationships (y = f(x))")
-print("   - check_function_any_line: Check if any plot line matches a function")
-print("   - check_multiple_lines: Verify plot has minimum number of lines")
-print("   - function_not_called: Ensure specific functions are NOT used")
+print("  array_size          - Assignment 13: Check array length")
+print("  array_values_in_range - Assignment 13: Check value bounds")
+print("  match_any_prefix    - Assignments 10, 12, 13: Catch any.linspace")
+print("  plot_has_xlabel     - Assignment 14: Check for any x label")
+print("  plot_has_ylabel     - Assignment 14: Check for any y label")
+print("  plot_has_title      - Assignment 14: Check for any title")
+print("  plot_line_style     - Assignment 14: Check specific line style")
+print("  plot_has_line_style - Assignment 14: Check if any line has style")
+print("  plot_line_width     - Assignment 14: Check line width")
+print("  plot_marker_size    - Assignment 14: Check marker size")
+print("  require_same_type   - Assignment 15: list vs array must match")
+print("  compare_plot_solution - Assignment 16: Compare plot properties")
