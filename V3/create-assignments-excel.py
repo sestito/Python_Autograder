@@ -596,6 +596,13 @@ assignment14_tests = [
         'description': 'Third line markers should be size 10',
         'pass_feedback': '',
         'fail_feedback': 'Set marker size to 10 using markersize=10'
+    },
+    {
+        'test_type': 'check_exact_lines',
+        'exact_lines': 3,
+        'description': 'Plot must have exactly 3 data sets',
+        'pass_feedback': 'Correct - your plot has exactly 3 lines!',
+        'fail_feedback': 'Your plot should have exactly 3 lines/data sets'
     }
 ]
 
@@ -709,5 +716,6 @@ print("  plot_line_style     - Assignment 14: Check specific line style")
 print("  plot_has_line_style - Assignment 14: Check if any line has style")
 print("  plot_line_width     - Assignment 14: Check line width")
 print("  plot_marker_size    - Assignment 14: Check marker size")
+print("  check_exact_lines   - Assignment 14: Require exact number of lines")
 print("  require_same_type   - Assignment 15: list vs array must match")
 print("  compare_plot_solution - Assignment 16: Compare plot properties")

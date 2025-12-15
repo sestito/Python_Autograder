@@ -567,6 +567,13 @@ class AutoGraderGUI:
                         custom_fail_feedback=custom_fail_feedback
                     )
                 
+                elif test_type == 'check_exact_lines':
+                    self.grader.check_exact_lines(
+                        exact_lines=self.parse_int(test.get('exact_lines', 1)),
+                        custom_pass_feedback=custom_pass_feedback,
+                        custom_fail_feedback=custom_fail_feedback
+                    )
+                
                 elif test_type == 'check_function_any_line':
                     function_str = test.get('function')
                     function = eval(function_str, {'np': np, 'numpy': np})

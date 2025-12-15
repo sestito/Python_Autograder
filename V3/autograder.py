@@ -108,6 +108,9 @@ class AutoGrader:
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
+        # Clear any existing plots before running student code
+        plt.close('all')
+        
         safe_builtins = self._get_safe_builtins()
         self.execution_namespace = {'__builtins__': safe_builtins}
         
@@ -146,7 +149,24 @@ class AutoGrader:
         import math
         import random
         import numpy as np
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt_original
+        
+        # Create a wrapper module for plt that makes show() a no-op
+        class PltWrapper:
+            """Wrapper for matplotlib.pyplot that disables show()"""
+            def __init__(self, plt_module):
+                self._plt = plt_module
+            
+            def __getattr__(self, name):
+                if name == 'show':
+                    # Return a no-op function for show()
+                    return lambda *args, **kwargs: None
+                return getattr(self._plt, name)
+            
+            def __dir__(self):
+                return dir(self._plt)
+        
+        plt_wrapper = PltWrapper(plt_original)
         
         return {
             '__import__': __import__,
@@ -162,7 +182,7 @@ class AutoGrader:
             'isinstance': isinstance, 'type': type, 'hasattr': hasattr,
             'getattr': getattr, 'setattr': setattr,
             'reversed': reversed, 'slice': slice,
-            'math': math, 'random': random, 'np': np, 'plt': plt,
+            'math': math, 'random': random, 'np': np, 'plt': plt_wrapper,
             'Exception': Exception, 'ValueError': ValueError,
             'TypeError': TypeError, 'IndexError': IndexError,
             'KeyError': KeyError, 'AttributeError': AttributeError,
@@ -458,6 +478,9 @@ class AutoGrader:
             with open(solution_file, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
+            # Close figures before running solution to avoid contamination
+            plt.close('all')
+            
             safe_builtins = self._get_safe_builtins()
             solution_namespace = {'__builtins__': safe_builtins}
             
@@ -489,13 +512,18 @@ class AutoGrader:
                 if not match:
                     all_match = False
             
+            # Restore student's plot state
+            self._restore_student_plot()
+            
             return all_match
             
         except TimeoutException:
+            self._restore_student_plot()
             self._log_result(False, "Solution execution timed out",
                            custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
+            self._restore_student_plot()
             self._log_result(False, f"Error executing solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
@@ -770,6 +798,9 @@ class AutoGrader:
             with open(solution_file, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
+            # Close figures before running solution to avoid contamination
+            plt.close('all')
+            
             safe_builtins = self._get_safe_builtins()
             solution_namespace = {'__builtins__': safe_builtins}
             
@@ -779,6 +810,7 @@ class AutoGrader:
             run_with_timeout(execute_solution, timeout=self.timeout)
             
             if func_name not in solution_namespace:
+                self._restore_student_plot()
                 self._log_result(False, f"Function '{func_name}' not found in solution",
                                custom_fail_feedback=custom_fail_feedback)
                 return False
@@ -805,13 +837,18 @@ class AutoGrader:
                                    custom_fail_feedback=custom_fail_feedback)
                     all_passed = False
             
+            # Restore student's plot state
+            self._restore_student_plot()
+            
             return all_passed
             
         except TimeoutException:
+            self._restore_student_plot()
             self._log_result(False, "Solution execution timed out",
                            custom_fail_feedback=custom_fail_feedback)
             return False
         except Exception as e:
+            self._restore_student_plot()
             self._log_result(False, f"Error executing solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
@@ -999,24 +1036,8 @@ class AutoGrader:
         
         return all_passed
     
-    def check_plot_line_style(self, expected_style: str, line_index: int = 0, fig_num: int = 1,
-                              custom_pass_feedback: Optional[str] = None,
-                              custom_fail_feedback: Optional[str] = None) -> bool:
-        """Check if a line has the expected style (e.g., 'b-', 'r--', 'g:', 'b*', 'ro')."""
-        if fig_num not in plt.get_fignums():
-            self._log_result(False, f"Figure {fig_num} not found", custom_fail_feedback=custom_fail_feedback)
-            return False
-        
-        fig = plt.figure(fig_num)
-        ax = fig.gca()
-        lines = ax.get_lines()
-        
-        if line_index >= len(lines):
-            self._log_result(False, f"Line {line_index} not found", custom_fail_feedback=custom_fail_feedback)
-            return False
-        
-        line = lines[line_index]
-        
+    def _check_line_style_internal(self, line, expected_style: str) -> bool:
+        """Internal helper to check line style without logging. Returns True if matches."""
         color_codes = {'b': 'blue', 'g': 'green', 'r': 'red', 'c': 'cyan', 
                        'm': 'magenta', 'y': 'yellow', 'k': 'black', 'w': 'white'}
         linestyle_codes = {'-': '-', '--': '--', '-.': '-.', ':': ':'}
@@ -1049,8 +1070,7 @@ class AutoGrader:
         if remaining and remaining[0] in marker_codes:
             expected_marker = marker_codes[remaining[0]]
         
-        all_passed = True
-        
+        # Check color
         if expected_color:
             from matplotlib.colors import to_rgb, CSS4_COLORS
             try:
@@ -1061,12 +1081,11 @@ class AutoGrader:
                 actual_rgb = to_rgb(actual_color)
                 
                 if not all(abs(a - e) < 0.01 for a, e in zip(actual_rgb, expected_rgb)):
-                    self._log_result(False, f"Line {line_index} color mismatch",
-                                   custom_fail_feedback=custom_fail_feedback)
-                    all_passed = False
+                    return False
             except:
-                pass
+                return False
         
+        # Check linestyle
         if expected_linestyle:
             linestyle_names = {'-': 'solid', '--': 'dashed', '-.': 'dashdot', ':': 'dotted',
                              'solid': 'solid', 'dashed': 'dashed', 'dashdot': 'dashdot', 'dotted': 'dotted'}
@@ -1074,25 +1093,43 @@ class AutoGrader:
             actual_ls_norm = linestyle_names.get(actual_linestyle, actual_linestyle)
             
             if expected_ls_norm != actual_ls_norm:
-                self._log_result(False, f"Line {line_index} style is '{actual_linestyle}', expected '{expected_linestyle}'",
-                               custom_fail_feedback=custom_fail_feedback)
-                all_passed = False
+                return False
         
+        # Check marker
         if expected_marker:
-            if actual_marker != expected_marker and actual_marker not in ('None', None, ''):
-                self._log_result(False, f"Line {line_index} marker is '{actual_marker}', expected '{expected_marker}'",
-                               custom_fail_feedback=custom_fail_feedback)
-                all_passed = False
-            elif actual_marker in ('None', None, ''):
-                self._log_result(False, f"Line {line_index} has no marker, expected '{expected_marker}'",
-                               custom_fail_feedback=custom_fail_feedback)
-                all_passed = False
+            if actual_marker in ('None', None, ''):
+                return False
+            if actual_marker != expected_marker:
+                return False
         
-        if all_passed:
+        return True
+    
+    def check_plot_line_style(self, expected_style: str, line_index: int = 0, fig_num: int = 1,
+                              custom_pass_feedback: Optional[str] = None,
+                              custom_fail_feedback: Optional[str] = None) -> bool:
+        """Check if a line has the expected style (e.g., 'b-', 'r--', 'g:', 'b*', 'ro')."""
+        if fig_num not in plt.get_fignums():
+            self._log_result(False, f"Figure {fig_num} not found", custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        fig = plt.figure(fig_num)
+        ax = fig.gca()
+        lines = ax.get_lines()
+        
+        if line_index >= len(lines):
+            self._log_result(False, f"Line {line_index} not found", custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        line = lines[line_index]
+        
+        if self._check_line_style_internal(line, expected_style):
             self._log_result(True, f"Line {line_index} has correct style '{expected_style}'",
                            custom_pass_feedback=custom_pass_feedback)
-        
-        return all_passed
+            return True
+        else:
+            self._log_result(False, f"Line {line_index} does not have style '{expected_style}'",
+                           custom_fail_feedback=custom_fail_feedback)
+            return False
     
     def check_plot_has_line_style(self, expected_style: str, fig_num: int = 1,
                                   custom_pass_feedback: Optional[str] = None,
@@ -1110,13 +1147,10 @@ class AutoGrader:
             self._log_result(False, "No lines found", custom_fail_feedback=custom_fail_feedback)
             return False
         
-        for i in range(len(lines)):
-            old_results = self.test_results.copy()
-            result = self.check_plot_line_style(expected_style, line_index=i, fig_num=fig_num)
-            self.test_results = old_results
-            
-            if result:
-                self._log_result(True, f"Found line with style '{expected_style}'",
+        # Check each line without logging
+        for i, line in enumerate(lines):
+            if self._check_line_style_internal(line, expected_style):
+                self._log_result(True, f"Found line with style '{expected_style}' (line {i})",
                                custom_pass_feedback=custom_pass_feedback)
                 return True
         
@@ -1199,13 +1233,20 @@ class AutoGrader:
             self._log_result(False, f"Line {line_index} not found", custom_fail_feedback=custom_fail_feedback)
             return False
         
+        # Save student line properties BEFORE closing figures
         student_line = student_lines[line_index]
+        student_color = student_line.get_color()
+        student_linestyle = student_line.get_linestyle()
+        student_linewidth = student_line.get_linewidth()
+        student_marker = student_line.get_marker()
+        student_markersize = student_line.get_markersize()
         
         if not os.path.exists(solution_file):
             self._log_result(False, f"Solution file not found", custom_fail_feedback=custom_fail_feedback)
             return False
         
         try:
+            # Now close all figures before running solution
             plt.close('all')
             
             with open(solution_file, 'r', encoding='utf-8') as f:
@@ -1239,7 +1280,7 @@ class AutoGrader:
             if check_color:
                 from matplotlib.colors import to_rgb
                 try:
-                    student_rgb = to_rgb(student_line.get_color())
+                    student_rgb = to_rgb(student_color)
                     sol_rgb = to_rgb(sol_line.get_color())
                     if not all(abs(s - e) < 0.01 for s, e in zip(student_rgb, sol_rgb)):
                         self._log_result(False, "Line color differs from solution",
@@ -1248,27 +1289,31 @@ class AutoGrader:
                 except:
                     pass
             
-            if check_linestyle and student_line.get_linestyle() != sol_line.get_linestyle():
+            if check_linestyle and student_linestyle != sol_line.get_linestyle():
                 self._log_result(False, "Line style differs from solution",
                                custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
             
             if check_linewidth:
-                if abs(student_line.get_linewidth() - sol_line.get_linewidth()) > linewidth_tolerance:
+                if abs(student_linewidth - sol_line.get_linewidth()) > linewidth_tolerance:
                     self._log_result(False, f"Line width differs from solution",
                                    custom_fail_feedback=custom_fail_feedback)
                     all_passed = False
             
-            if check_marker and student_line.get_marker() != sol_line.get_marker():
+            if check_marker and student_marker != sol_line.get_marker():
                 self._log_result(False, "Marker style differs from solution",
                                custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
             
             if check_markersize:
-                if abs(student_line.get_markersize() - sol_line.get_markersize()) > markersize_tolerance:
+                if abs(student_markersize - sol_line.get_markersize()) > markersize_tolerance:
                     self._log_result(False, "Marker size differs from solution",
                                    custom_fail_feedback=custom_fail_feedback)
                     all_passed = False
+            
+            # Clean up solution figure and restore student's figure
+            plt.close('all')
+            self._restore_student_plot()
             
             if all_passed:
                 self._log_result(True, f"Line {line_index} properties match solution",
@@ -1277,9 +1322,25 @@ class AutoGrader:
             return all_passed
             
         except Exception as e:
+            # Try to restore student plot even on error
+            plt.close('all')
+            self._restore_student_plot()
             self._log_result(False, f"Error comparing with solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
+    
+    def _restore_student_plot(self):
+        """Re-execute student code to restore their plot state."""
+        if self._content is None:
+            return
+        try:
+            # Close any existing figures first
+            plt.close('all')
+            safe_builtins = self._get_safe_builtins()
+            temp_namespace = {'__builtins__': safe_builtins}
+            exec(self._content, temp_namespace, temp_namespace)
+        except:
+            pass  # Silently fail - plot restoration is best effort
     
     def check_plot_data_length(self, min_length: Optional[int] = None, max_length: Optional[int] = None,
                                 exact_length: Optional[int] = None, line_index: int = 0, fig_num: int = 1,
@@ -1344,6 +1405,24 @@ class AutoGrader:
                            custom_pass_feedback=custom_pass_feedback)
             return True
         self._log_result(False, f"Plot has {len(lines)} lines, expected at least {min_lines}",
+                       custom_fail_feedback=custom_fail_feedback)
+        return False
+    
+    def check_exact_lines(self, exact_lines: int, fig_num: int = 1,
+                          custom_pass_feedback: Optional[str] = None,
+                          custom_fail_feedback: Optional[str] = None) -> bool:
+        """Check if plot has exactly exact_lines lines/data sets."""
+        if fig_num not in plt.get_fignums():
+            self._log_result(False, f"Figure {fig_num} not found", custom_fail_feedback=custom_fail_feedback)
+            return False
+        
+        lines = plt.figure(fig_num).gca().get_lines()
+        
+        if len(lines) == exact_lines:
+            self._log_result(True, f"Plot has exactly {exact_lines} lines",
+                           custom_pass_feedback=custom_pass_feedback)
+            return True
+        self._log_result(False, f"Plot has {len(lines)} lines, expected exactly {exact_lines}",
                        custom_fail_feedback=custom_fail_feedback)
         return False
     
