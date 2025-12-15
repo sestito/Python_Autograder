@@ -182,11 +182,6 @@ class AutoGraderGUI:
         name_entry = ttk.Entry(info_frame, textvariable=self.student_name, width=40)
         name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         
-        # Display system info (read-only)
-        ttk.Label(info_frame, text="Computer:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        computer_label = ttk.Label(info_frame, text=f"{self.computer_name} ({self.username})")
-        computer_label.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
-        
         info_frame.columnconfigure(1, weight=1)
         
         # ===== Assignment Selection Section =====
@@ -729,8 +724,6 @@ class AutoGraderGUI:
         self.results_text.insert(tk.END, "AUTOGRADER RESULTS\n", 'header')
         self.results_text.insert(tk.END, "="*70 + "\n", 'header')
         self.results_text.insert(tk.END, f"Student: {self.student_name.get()}\n")
-        self.results_text.insert(tk.END, f"Computer: {self.computer_name}\n")
-        self.results_text.insert(tk.END, f"Username: {self.username}\n")
         self.results_text.insert(tk.END, f"Assignment: {self.selected_assignment.get()}\n")
         self.results_text.insert(tk.END, f"File: {os.path.basename(self.selected_file.get())}\n")
         self.results_text.insert(tk.END, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -792,20 +785,32 @@ class AutoGraderGUI:
             subject = f"{self.selected_assignment.get()}, {self.student_name.get()}, {timestamp.strftime('%Y-%m-%d')}, {timestamp.strftime('%H:%M:%S')}"
             msg['Subject'] = subject
             
-            body = f"""
-AutoGrader Submission
+            # Read student's code
+            with open(self.selected_file.get(), 'r', encoding='utf-8') as f:
+                student_code = f.read()
+            
+            body = f"""AutoGrader Submission
 
 Student Name: {self.student_name.get()}
 Computer Name: {self.computer_name}
 Username: {self.username}
 Assignment: {self.selected_assignment.get()}
+File: {os.path.basename(self.selected_file.get())}
 Submission Date: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 
-Results:
+{'='*70}
+RESULTS
+{'='*70}
 {self.results_text.get(1.0, tk.END)}
+
+{'='*70}
+STUDENT CODE
+{'='*70}
+{student_code}
 """
             msg.attach(MIMEText(body, 'plain'))
             
+            # Also attach the file
             with open(self.selected_file.get(), 'rb') as f:
                 part = MIMEBase('application', 'octet-stream')
                 part.set_payload(f.read())
