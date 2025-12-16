@@ -2,7 +2,6 @@
 """
 Assignment Editor GUI for AutoGrader
 Provides an easy interface to create and edit assignments and tests.
-Also includes tools to encode resources, test the autograder, and build executables.
 """
 
 import tkinter as tk
@@ -18,80 +17,112 @@ import configparser
 
 SETTINGS_FILE = 'assignment_editor_settings.json'
 
+def friendly_name(s):
+    """Convert snake_case to Title Case."""
+    if not s:
+        return ''
+    return s.replace('_', ' ').title()
+
+def clean_value(value):
+    """Clean a value, converting nan to empty string."""
+    if pd.isna(value):
+        return ''
+    s = str(value)
+    if s.lower() == 'nan':
+        return ''
+    return s
+
+def make_relative_path(filepath, base_dir=None):
+    """Convert absolute path to relative, always using forward slashes."""
+    if not filepath:
+        return filepath
+    if base_dir is None:
+        base_dir = os.getcwd()
+    try:
+        rel = os.path.relpath(filepath, base_dir)
+        # Always use forward slashes for cross-platform compatibility
+        return rel.replace('\\', '/')
+    except ValueError:
+        return filepath.replace('\\', '/')
+
+BOOLEAN_FIELDS = {'match_any_prefix', 'case_sensitive', 'order_matters', 'require_same_type',
+                  'has_legend', 'has_grid', 'check_color', 'check_linestyle', 
+                  'check_linewidth', 'check_marker', 'check_markersize'}
+
 TEST_TYPE_DEFINITIONS = {
     'variable_value': {
         'display_name': 'Check Variable Value',
         'required': ['variable_name', 'expected_value'],
-        'optional': ['tolerance'],
+        'optional': ['description', 'tolerance'],
         'defaults': {'tolerance': '1e-6'},
-        'help': 'Checks if a variable equals an expected value.',
-        'example': "variable_name: result\nexpected_value: 42",
+        'help': 'Verifies that a variable in the student code equals an expected value. For numeric values, uses tolerance for comparison. Works with numbers, strings, lists, and other Python types.',
+        'example': "variable_name: total\nexpected_value: 42\ntolerance: 0.01",
         'key_param': 'variable_name'
     },
     'variable_type': {
         'display_name': 'Check Variable Type',
         'required': ['variable_name', 'expected_value'],
-        'optional': [],
+        'optional': ['description'],
         'defaults': {},
-        'help': 'Checks variable type. Use: int, float, str, list, dict, tuple',
-        'example': "variable_name: my_list\nexpected_value: list",
+        'help': 'Verifies that a variable has the correct Python type. Useful for ensuring students use the right data structures. Valid types: int, float, str, list, dict, tuple, set, bool.',
+        'example': "variable_name: my_data\nexpected_value: list",
         'key_param': 'variable_name'
     },
     'function_exists': {
         'display_name': 'Check Function Exists',
         'required': ['function_name'],
-        'optional': [],
+        'optional': ['description'],
         'defaults': {},
-        'help': 'Checks if a function is defined.',
+        'help': 'Verifies that a function with the specified name is defined in the student code. Checks the AST (code structure), so works even if code has runtime errors.',
         'example': "function_name: calculate_average",
         'key_param': 'function_name'
     },
     'function_called': {
         'display_name': 'Check Function Called',
         'required': ['function_name'],
-        'optional': ['match_any_prefix'],
-        'defaults': {'match_any_prefix': 'false'},
-        'help': 'Checks if a function is called.',
-        'example': "function_name: np.mean",
+        'optional': ['description', 'match_any_prefix'],
+        'defaults': {'match_any_prefix': ''},
+        'help': 'Verifies that a function is called somewhere in the student code. Use match_any_prefix=true to match any module prefix (e.g., "mean" matches np.mean, numpy.mean, statistics.mean).',
+        'example': "function_name: np.mean\nmatch_any_prefix: false",
         'key_param': 'function_name'
     },
     'function_not_called': {
         'display_name': 'Check Function NOT Called',
         'required': ['function_name'],
-        'optional': ['match_any_prefix'],
-        'defaults': {'match_any_prefix': 'false'},
-        'help': 'Checks that a function is NOT used.',
-        'example': "function_name: linspace\nmatch_any_prefix: true",
+        'optional': ['description', 'match_any_prefix'],
+        'defaults': {'match_any_prefix': ''},
+        'help': 'Verifies that a function is NOT used in the student code. Useful for ensuring students implement algorithms manually instead of using built-in functions.',
+        'example': "function_name: sorted\nmatch_any_prefix: true",
         'key_param': 'function_name'
     },
     'compare_solution': {
         'display_name': 'Compare with Solution File',
         'required': ['solution_file', 'variables_to_compare'],
-        'optional': ['tolerance', 'require_same_type'],
-        'defaults': {'tolerance': '1e-6', 'require_same_type': 'false'},
-        'help': 'Compares variables with a solution file. Most common test.',
-        'example': "solution_file: solutions/sol.py\nvariables_to_compare: x, y, result",
+        'optional': ['description', 'tolerance', 'require_same_type'],
+        'defaults': {'tolerance': '1e-6', 'require_same_type': ''},
+        'help': 'Executes a solution file and compares specified variables between student and solution. Most versatile test - handles any variable types including arrays and plots.',
+        'example': "solution_file: solutions/hw1_sol.py\nvariables_to_compare: x, y, result",
         'file_field': 'solution_file',
         'key_param': 'solution_file'
     },
     'test_function_solution': {
         'display_name': 'Test Function with Solution',
         'required': ['function_name', 'solution_file'],
-        'optional': ['tolerance'],
+        'optional': ['description', 'tolerance'],
         'defaults': {'tolerance': '1e-6'},
-        'help': 'Tests function with inputs and compares to solution.',
-        'example': "function_name: add\nsolution_file: solutions/sol.py",
+        'help': 'Tests a student function by calling it with specified inputs and comparing results to the same function in a solution file. Click "Edit Test Inputs" to define test cases.',
+        'example': "function_name: add_numbers\nsolution_file: solutions/math_sol.py",
         'file_field': 'solution_file',
         'key_param': 'function_name',
         'has_test_inputs': True
     },
     'test_function_solution_advanced': {
-        'display_name': 'Test Function with Solution (Advanced)',
+        'display_name': 'Test Function (with Kwargs)',
         'required': ['function_name', 'solution_file'],
-        'optional': ['tolerance'],
+        'optional': ['description', 'tolerance'],
         'defaults': {'tolerance': '1e-6'},
-        'help': 'Tests function with args and kwargs.',
-        'example': "function_name: process\nsolution_file: solutions/sol.py",
+        'help': 'Like "Test Function with Solution" but also supports keyword arguments. Use this when the function has optional parameters that need testing.',
+        'example': "function_name: format_data\nsolution_file: solutions/utils_sol.py",
         'file_field': 'solution_file',
         'key_param': 'function_name',
         'has_test_inputs': True,
@@ -99,203 +130,210 @@ TEST_TYPE_DEFINITIONS = {
     },
     'for_loop_used': {
         'display_name': 'Check For Loop Used',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if code contains a for loop.',
-        'example': '(no parameters)', 'key_param': None
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the student code contains at least one "for" loop. Checks the code structure, not execution.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'while_loop_used': {
         'display_name': 'Check While Loop Used',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if code contains a while loop.',
-        'example': '(no parameters)', 'key_param': None
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the student code contains at least one "while" loop. Checks the code structure, not execution.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'if_statement_used': {
         'display_name': 'Check If Statement Used',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if code contains an if statement.',
-        'example': '(no parameters)', 'key_param': None
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the student code contains at least one "if" statement. Checks the code structure, not execution.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'operator_used': {
         'display_name': 'Check Operator Used',
         'required': ['operator'],
-        'optional': [], 'defaults': {},
-        'help': 'Checks if operator is used (+, -, *, /, +=, etc).',
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that a specific operator is used in the code. Supports: +, -, *, /, //, %, **, +=, -=, *=, /=, ==, !=, <, <=, >, >=, and, or, not.',
         'example': "operator: +=",
         'key_param': 'operator'
     },
     'code_contains': {
         'display_name': 'Check Code Contains Text',
         'required': ['phrase'],
-        'optional': ['case_sensitive'],
-        'defaults': {'case_sensitive': 'true'},
-        'help': 'Checks if code contains a phrase.',
-        'example': "phrase: import numpy",
+        'optional': ['description', 'case_sensitive'],
+        'defaults': {'case_sensitive': ''},
+        'help': 'Searches the student code for a specific text phrase. Useful for checking imports, comments, or specific syntax patterns.',
+        'example': "phrase: import numpy\ncase_sensitive: false",
         'key_param': 'phrase'
     },
     'loop_iterations': {
         'display_name': 'Check Loop Iterations',
         'required': ['loop_variable'],
-        'optional': ['expected_count'],
-        'defaults': {},
-        'help': 'Checks loop counter variable value.',
-        'example': "loop_variable: count\nexpected_count: 100",
+        'optional': ['description', 'expected_count', 'tolerance'],
+        'defaults': {'tolerance': '0'},
+        'help': 'Checks the value of a counter variable after code execution. Students must define a variable that tracks iteration count. If expected_count is set, verifies it matches.',
+        'example': "loop_variable: iteration_count\nexpected_count: 100",
         'key_param': 'loop_variable'
     },
     'list_equals': {
         'display_name': 'Check List Equals',
         'required': ['variable_name', 'expected_list'],
-        'optional': ['order_matters', 'tolerance'],
-        'defaults': {'order_matters': 'true', 'tolerance': '1e-6'},
-        'help': 'Checks if list equals expected values.',
-        'example': "variable_name: my_list\nexpected_list: [1, 2, 3]",
+        'optional': ['description', 'order_matters', 'tolerance'],
+        'defaults': {'order_matters': '', 'tolerance': '1e-6'},
+        'help': 'Verifies that a list variable matches expected values. Set order_matters=false to ignore element order (compares as sets).',
+        'example': "variable_name: results\nexpected_list: [1, 2, 3, 4, 5]\norder_matters: true",
         'key_param': 'variable_name'
     },
     'array_equals': {
         'display_name': 'Check Array Equals',
         'required': ['variable_name', 'expected_array'],
-        'optional': ['tolerance'],
+        'optional': ['description', 'tolerance'],
         'defaults': {'tolerance': '1e-6'},
-        'help': 'Checks if numpy array equals expected.',
-        'example': "variable_name: data\nexpected_array: [1.0, 2.0]",
+        'help': 'Verifies that a NumPy array matches expected values within tolerance. Automatically converts lists to arrays for comparison. Checks both shape and values.',
+        'example': "variable_name: data\nexpected_array: [1.0, 2.0, 3.0]\ntolerance: 0.001",
         'key_param': 'variable_name'
     },
     'array_size': {
-        'display_name': 'Check Array Size',
+        'display_name': 'Check Array/List Size',
         'required': ['variable_name'],
-        'optional': ['min_size', 'max_size', 'exact_size'],
+        'optional': ['description', 'min_size', 'max_size', 'exact_size'],
         'defaults': {},
-        'help': 'Checks array/list size.',
-        'example': "variable_name: x_values\nmin_size: 100",
+        'help': 'Verifies the size/length of an array or list. Can check for minimum size, maximum size, exact size, or any combination.',
+        'example': "variable_name: x_values\nmin_size: 100\nmax_size: 1000",
         'key_param': 'variable_name'
     },
     'array_values_in_range': {
         'display_name': 'Check Array Values in Range',
         'required': ['variable_name'],
-        'optional': ['min_value', 'max_value'],
+        'optional': ['description', 'min_value', 'max_value'],
         'defaults': {},
-        'help': 'Checks array values are within bounds.',
-        'example': "variable_name: probs\nmin_value: 0\nmax_value: 1",
+        'help': 'Verifies that ALL values in an array/list fall within a specified range. Useful for checking normalized data, probabilities, or bounded values.',
+        'example': "variable_name: probabilities\nmin_value: 0\nmax_value: 1",
         'key_param': 'variable_name'
     },
     'check_relationship': {
         'display_name': 'Check Variable Relationship',
         'required': ['var1_name', 'var2_name', 'relationship'],
-        'optional': ['tolerance'],
+        'optional': ['description', 'tolerance'],
         'defaults': {'tolerance': '1e-6'},
-        'help': 'Checks if var2 = f(var1).',
-        'example': "var1_name: x\nvar2_name: y\nrelationship: lambda x: np.sin(x)",
+        'help': 'Verifies that var2 equals a mathematical function of var1. The relationship is a lambda function. Example: check if y = sin(x).',
+        'example': "var1_name: x\nvar2_name: y\nrelationship: lambda x: np.sin(x)\ntolerance: 0.001",
         'key_param': 'var1_name'
     },
     'plot_created': {
         'display_name': 'Check Plot Created',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if matplotlib plot was created.',
-        'example': '(no parameters)', 'key_param': None
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the student code created at least one matplotlib figure. Basic check before testing plot properties.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'plot_properties': {
         'display_name': 'Check Plot Properties',
         'required': [],
-        'optional': ['title', 'xlabel', 'ylabel', 'has_legend', 'has_grid'],
+        'optional': ['description', 'title', 'xlabel', 'ylabel', 'has_legend', 'has_grid'],
         'defaults': {},
-        'help': 'Checks plot title, labels, legend, grid.',
-        'example': "title: My Plot\nxlabel: X\nylabel: Y",
+        'help': 'Verifies plot labels, title, legend, and grid settings. Leave fields blank to skip checking them. String comparisons are exact matches.',
+        'example': "title: Sales Data\nxlabel: Month\nylabel: Revenue ($)\nhas_legend: true\nhas_grid: true",
         'key_param': 'title'
     },
     'plot_has_xlabel': {
-        'display_name': 'Check Plot Has X-Label',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if plot has x-axis label.',
-        'example': '(no parameters)', 'key_param': None
+        'display_name': 'Check Plot Has X Label',
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the plot has ANY x-axis label set (does not check the specific text). Use plot_properties to check exact label text.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'plot_has_ylabel': {
-        'display_name': 'Check Plot Has Y-Label',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if plot has y-axis label.',
-        'example': '(no parameters)', 'key_param': None
+        'display_name': 'Check Plot Has Y Label',
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the plot has ANY y-axis label set (does not check the specific text). Use plot_properties to check exact label text.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'plot_has_title': {
         'display_name': 'Check Plot Has Title',
-        'required': [], 'optional': [], 'defaults': {},
-        'help': 'Checks if plot has title.',
-        'example': '(no parameters)', 'key_param': None
+        'required': [],
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the plot has ANY title set (does not check the specific text). Use plot_properties to check exact title text.',
+        'example': "(no parameters needed)",
+        'key_param': None
     },
     'plot_data_length': {
         'display_name': 'Check Plot Data Length',
         'required': [],
-        'optional': ['min_length', 'max_length', 'exact_length', 'line_index'],
+        'optional': ['description', 'min_length', 'max_length', 'exact_length', 'line_index'],
         'defaults': {'line_index': '0'},
-        'help': 'Checks number of data points.',
-        'example': "min_length: 50",
+        'help': 'Verifies the number of data points in a plot line. line_index specifies which line (0=first). Can check min, max, or exact count.',
+        'example': "min_length: 50\nline_index: 0",
         'key_param': 'min_length'
     },
     'plot_line_style': {
         'display_name': 'Check Plot Line Style',
         'required': ['expected_style'],
-        'optional': ['line_index'],
+        'optional': ['description', 'line_index'],
         'defaults': {'line_index': '0'},
-        'help': "Checks line style (e.g., 'b-', 'r--').",
-        'example': "expected_style: b-",
+        'help': 'Verifies the line style of a specific line in the plot. Common styles: "-" (solid), "--" (dashed), ":" (dotted), "-." (dash-dot).',
+        'example': "expected_style: --\nline_index: 0",
         'key_param': 'expected_style'
     },
     'plot_has_line_style': {
-        'display_name': 'Check Plot Has Line Style',
+        'display_name': 'Check Any Line Has Style',
         'required': ['expected_style'],
-        'optional': [], 'defaults': {},
-        'help': 'Checks if ANY line has style.',
-        'example': "expected_style: r--",
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that ANY line in the plot has the specified style. Useful when you do not care which line has the style.',
+        'example': "expected_style: --",
         'key_param': 'expected_style'
-    },
-    'plot_line_width': {
-        'display_name': 'Check Plot Line Width',
-        'required': ['expected_width'],
-        'optional': ['line_index', 'tolerance'],
-        'defaults': {'line_index': '0', 'tolerance': '0.1'},
-        'help': 'Checks line width.',
-        'example': "expected_width: 2.0",
-        'key_param': 'expected_width'
-    },
-    'plot_marker_size': {
-        'display_name': 'Check Plot Marker Size',
-        'required': ['expected_size'],
-        'optional': ['line_index', 'tolerance'],
-        'defaults': {'line_index': '0', 'tolerance': '0.5'},
-        'help': 'Checks marker size.',
-        'example': "expected_size: 10",
-        'key_param': 'expected_size'
     },
     'check_multiple_lines': {
         'display_name': 'Check Minimum Lines in Plot',
         'required': ['min_lines'],
-        'optional': [], 'defaults': {},
-        'help': 'Checks minimum number of lines.',
-        'example': "min_lines: 2",
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the plot contains at least the specified number of lines. Useful for multi-line plots.',
+        'example': "min_lines: 3",
         'key_param': 'min_lines'
     },
     'check_exact_lines': {
         'display_name': 'Check Exact Lines in Plot',
         'required': ['exact_lines'],
-        'optional': [], 'defaults': {},
-        'help': 'Checks exact number of lines.',
-        'example': "exact_lines: 3",
+        'optional': ['description'],
+        'defaults': {},
+        'help': 'Verifies that the plot contains exactly the specified number of lines.',
+        'example': "exact_lines: 2",
         'key_param': 'exact_lines'
     },
     'compare_plot_solution': {
         'display_name': 'Compare Plot with Solution',
         'required': ['solution_file'],
-        'optional': ['line_index', 'check_color', 'check_linestyle', 'check_linewidth', 'check_marker', 'check_markersize'],
-        'defaults': {'line_index': '0', 'check_color': 'true', 'check_linestyle': 'true'},
-        'help': 'Compares plot with solution file.',
-        'example': "solution_file: solutions/plot_sol.py",
+        'optional': ['description', 'line_index', 'tolerance', 'check_color', 'check_linestyle', 'check_linewidth', 'check_marker', 'check_markersize'],
+        'defaults': {'line_index': '0', 'tolerance': '1e-6'},
+        'help': 'Compares plot data (x, y values) with a solution file. Optionally checks visual properties like color, line style, width, and markers.',
+        'example': "solution_file: solutions/plot_sol.py\nline_index: 0\ncheck_color: true",
         'file_field': 'solution_file',
         'key_param': 'solution_file'
     },
     'check_function_any_line': {
         'display_name': 'Check Plot Matches Function',
         'required': ['function'],
-        'optional': ['min_length', 'tolerance'],
+        'optional': ['description', 'min_length', 'tolerance'],
         'defaults': {'min_length': '1', 'tolerance': '1e-6'},
-        'help': 'Checks if line matches y = f(x).',
-        'example': "function: lambda x: np.sin(x)",
+        'help': 'Verifies that ANY line in the plot matches y = f(x) for the given function. The function should be a lambda that takes x values and returns expected y values.',
+        'example': "function: lambda x: np.sin(2*x)\nmin_length: 50\ntolerance: 0.01",
         'key_param': 'function'
     },
 }
@@ -305,20 +343,12 @@ DISPLAY_TO_INTERNAL = {v['display_name']: k for k, v in TEST_TYPE_DEFINITIONS.it
 def get_display_names_sorted():
     return sorted([v['display_name'] for v in TEST_TYPE_DEFINITIONS.values()])
 
-def clean_value(value):
-    if pd.isna(value):
-        return ''
-    s = str(value)
-    if s.lower() == 'nan':
-        return ''
-    return s
-
 
 class TestInputsDialog(tk.Toplevel):
     def __init__(self, parent, test_inputs_str='', has_kwargs=False):
         super().__init__(parent)
         self.title("Edit Test Inputs")
-        self.geometry("800x600")
+        self.geometry("850x650")
         self.transient(parent)
         self.grab_set()
         self.result = None
@@ -327,7 +357,11 @@ class TestInputsDialog(tk.Toplevel):
         self.parse_existing_inputs(test_inputs_str)
         self.create_widgets()
         self.refresh_display()
+        self.center_window()
+
+    def center_window(self):
         self.update_idletasks()
+        parent = self.master
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
@@ -352,7 +386,9 @@ class TestInputsDialog(tk.Toplevel):
                     if is_numpy:
                         v = v[9:-1]
                     kwargs_dict[k] = {'value': str(v), 'is_numpy': is_numpy}
-                self.input_sets.append({'args': args_list if args_list else [{'value': '', 'is_numpy': False}], 'kwargs': kwargs_dict})
+                if not args_list:
+                    args_list = [{'value': '', 'is_numpy': False}]
+                self.input_sets.append({'args': args_list, 'kwargs': kwargs_dict})
             if not self.input_sets:
                 self.input_sets = [{'args': [{'value': '', 'is_numpy': False}], 'kwargs': {}}]
         except:
@@ -361,9 +397,16 @@ class TestInputsDialog(tk.Toplevel):
     def create_widgets(self):
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text="Each input set calls the function once.", wraplength=750).pack(pady=5)
+        
+        info = ttk.LabelFrame(main, text="Instructions & Examples", padding="5")
+        info.pack(fill=tk.X, pady=5)
+        txt = """Each input set calls the function once. Examples:
+  Numbers: 5, 3.14    Strings: 'hello' (with quotes)    Lists: [1, 2, 3]
+  Check 'numpy array' to wrap value as np.array([1, 2, 3])"""
+        ttk.Label(info, text=txt, justify=tk.LEFT).pack(anchor=tk.W)
+        
         canvas_frame = ttk.Frame(main)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         self.canvas = tk.Canvas(canvas_frame)
         sb = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
         self.inputs_frame = ttk.Frame(self.canvas)
@@ -372,7 +415,9 @@ class TestInputsDialog(tk.Toplevel):
         self.canvas.configure(yscrollcommand=sb.set)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        
         ttk.Button(main, text="+ Add Input Set", command=self.add_input_set).pack(pady=10)
+        
         bf = ttk.Frame(main)
         bf.pack(fill=tk.X, pady=10)
         ttk.Button(bf, text="OK", command=self.ok, width=10).pack(side=tk.RIGHT, padx=5)
@@ -387,15 +432,15 @@ class TestInputsDialog(tk.Toplevel):
     def create_input_set_widget(self, idx, inp_set):
         frame = ttk.LabelFrame(self.inputs_frame, text=f"Input Set {idx+1}", padding="5")
         frame.pack(fill=tk.X, pady=5, padx=5)
-        hdr = ttk.Frame(frame)
-        hdr.pack(fill=tk.X)
         if len(self.input_sets) > 1:
-            ttk.Button(hdr, text="Remove Set", command=lambda: self.remove_input_set(idx)).pack(side=tk.RIGHT)
+            ttk.Button(frame, text="Remove Set", command=lambda: self.remove_input_set(idx)).pack(anchor=tk.E)
+        
         args_f = ttk.LabelFrame(frame, text="Arguments", padding="5")
         args_f.pack(fill=tk.X, pady=5)
         for j, arg in enumerate(inp_set['args']):
             self.create_arg_widget(args_f, idx, j, arg)
-        ttk.Button(args_f, text="+ Add Arg", command=lambda i=idx: self.add_argument(i)).pack(pady=5)
+        ttk.Button(args_f, text="+ Add Argument", command=lambda i=idx: self.add_argument(i)).pack(pady=5)
+        
         if self.has_kwargs:
             kw_f = ttk.LabelFrame(frame, text="Keyword Arguments", padding="5")
             kw_f.pack(fill=tk.X, pady=5)
@@ -406,7 +451,7 @@ class TestInputsDialog(tk.Toplevel):
             kw_var = tk.StringVar()
             ttk.Label(add_f, text="Name:").pack(side=tk.LEFT)
             ttk.Entry(add_f, textvariable=kw_var, width=15).pack(side=tk.LEFT, padx=5)
-            ttk.Button(add_f, text="+ Add", command=lambda i=idx, v=kw_var: self.add_kwarg(i, v)).pack(side=tk.LEFT)
+            ttk.Button(add_f, text="+ Add Kwarg", command=lambda i=idx, v=kw_var: self.add_kwarg(i, v)).pack(side=tk.LEFT)
 
     def create_arg_widget(self, parent, si, ai, arg):
         f = ttk.Frame(parent)
@@ -416,9 +461,10 @@ class TestInputsDialog(tk.Toplevel):
         ttk.Entry(f, textvariable=var, width=40).pack(side=tk.LEFT, padx=5)
         var.trace_add('write', lambda *a, s=si, i=ai, v=var: self.update_arg_value(s, i, v.get()))
         np_var = tk.BooleanVar(value=arg['is_numpy'])
-        ttk.Checkbutton(f, text="numpy", variable=np_var, command=lambda s=si, i=ai, v=np_var: self.update_arg_numpy(s, i, v.get())).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(f, text="numpy array", variable=np_var, 
+                       command=lambda s=si, i=ai, v=np_var: self.update_arg_numpy(s, i, v.get())).pack(side=tk.LEFT, padx=5)
         if len(self.input_sets[si]['args']) > 1:
-            ttk.Button(f, text="X", width=2, command=lambda s=si, i=ai: self.remove_argument(s, i)).pack(side=tk.LEFT)
+            ttk.Button(f, text="X", width=3, command=lambda s=si, i=ai: self.remove_argument(s, i)).pack(side=tk.LEFT)
 
     def create_kwarg_widget(self, parent, si, name, kwarg):
         f = ttk.Frame(parent)
@@ -428,8 +474,9 @@ class TestInputsDialog(tk.Toplevel):
         ttk.Entry(f, textvariable=var, width=35).pack(side=tk.LEFT, padx=5)
         var.trace_add('write', lambda *a, s=si, n=name, v=var: self.update_kwarg_value(s, n, v.get()))
         np_var = tk.BooleanVar(value=kwarg['is_numpy'])
-        ttk.Checkbutton(f, text="numpy", variable=np_var, command=lambda s=si, n=name, v=np_var: self.update_kwarg_numpy(s, n, v.get())).pack(side=tk.LEFT, padx=5)
-        ttk.Button(f, text="X", width=2, command=lambda s=si, n=name: self.remove_kwarg(s, n)).pack(side=tk.LEFT)
+        ttk.Checkbutton(f, text="numpy array", variable=np_var,
+                       command=lambda s=si, n=name, v=np_var: self.update_kwarg_numpy(s, n, v.get())).pack(side=tk.LEFT, padx=5)
+        ttk.Button(f, text="X", width=3, command=lambda s=si, n=name: self.remove_kwarg(s, n)).pack(side=tk.LEFT)
 
     def add_input_set(self):
         self.input_sets.append({'args': [{'value': '', 'is_numpy': False}], 'kwargs': {}})
@@ -525,7 +572,7 @@ class TestEditorDialog(tk.Toplevel):
     def __init__(self, parent, test_data=None, title="Edit Test"):
         super().__init__(parent)
         self.title(title)
-        self.geometry("750x650")
+        self.geometry("800x750")
         self.transient(parent)
         self.grab_set()
         self.result = None
@@ -534,7 +581,11 @@ class TestEditorDialog(tk.Toplevel):
         self.test_inputs_str = ''
         self.create_widgets()
         self.load_test_data()
+        self.center_window()
+
+    def center_window(self):
         self.update_idletasks()
+        parent = self.master
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
@@ -542,19 +593,23 @@ class TestEditorDialog(tk.Toplevel):
     def create_widgets(self):
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
+        
         tf = ttk.LabelFrame(main, text="Test Type", padding="5")
         tf.pack(fill=tk.X, pady=5)
         self.test_type_var = tk.StringVar()
-        self.test_type_combo = ttk.Combobox(tf, textvariable=self.test_type_var, values=get_display_names_sorted(), state='readonly', width=50)
+        self.test_type_combo = ttk.Combobox(tf, textvariable=self.test_type_var, 
+                                            values=get_display_names_sorted(), state='readonly', width=55)
         self.test_type_combo.pack(side=tk.LEFT, padx=5)
         self.test_type_combo.bind('<<ComboboxSelected>>', self.on_test_type_changed)
+        
         hf = ttk.LabelFrame(main, text="Help", padding="5")
         hf.pack(fill=tk.X, pady=5)
-        self.help_text = tk.Text(hf, height=3, wrap=tk.WORD, state='disabled')
+        self.help_text = tk.Text(hf, height=4, wrap=tk.WORD, state='disabled')
         self.help_text.pack(fill=tk.X)
+        
         fc = ttk.LabelFrame(main, text="Parameters", padding="5")
         fc.pack(fill=tk.BOTH, expand=True, pady=5)
-        canvas = tk.Canvas(fc, height=180)
+        canvas = tk.Canvas(fc, height=250)
         sb = ttk.Scrollbar(fc, orient="vertical", command=canvas.yview)
         self.fields_frame = ttk.Frame(canvas)
         self.fields_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -562,22 +617,25 @@ class TestEditorDialog(tk.Toplevel):
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        
         self.ti_frame = ttk.Frame(main)
         self.ti_frame.pack(fill=tk.X, pady=5)
         self.ti_btn = ttk.Button(self.ti_frame, text="Edit Test Inputs...", command=self.edit_test_inputs)
         self.ti_label = ttk.Label(self.ti_frame, text="")
+        
         ff = ttk.LabelFrame(main, text="Custom Feedback (Optional)", padding="5")
         ff.pack(fill=tk.X, pady=5)
         ttk.Label(ff, text="Pass:").grid(row=0, column=0, sticky=tk.W, padx=5)
         self.pass_fb = tk.StringVar()
-        ttk.Entry(ff, textvariable=self.pass_fb, width=65).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Entry(ff, textvariable=self.pass_fb, width=70).grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(ff, text="Fail:").grid(row=1, column=0, sticky=tk.W, padx=5)
         self.fail_fb = tk.StringVar()
-        ttk.Entry(ff, textvariable=self.fail_fb, width=65).grid(row=1, column=1, padx=5, pady=2)
+        ttk.Entry(ff, textvariable=self.fail_fb, width=70).grid(row=1, column=1, padx=5, pady=2)
+        
         bf = ttk.Frame(main)
         bf.pack(fill=tk.X, pady=10)
-        ttk.Button(bf, text="Save", command=self.save).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bf, text="Cancel", command=self.cancel).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bf, text="Save", command=self.save, width=10).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bf, text="Cancel", command=self.cancel, width=10).pack(side=tk.RIGHT, padx=5)
 
     def on_test_type_changed(self, event=None):
         dn = self.test_type_var.get()
@@ -587,54 +645,73 @@ class TestEditorDialog(tk.Toplevel):
         if not internal:
             return
         defn = TEST_TYPE_DEFINITIONS.get(internal, {})
+        
         self.help_text.config(state='normal')
         self.help_text.delete(1.0, tk.END)
-        self.help_text.insert(tk.END, f"{defn.get('help', '')}\nExample: {defn.get('example', '')}")
+        self.help_text.insert(tk.END, f"{defn.get('help', '')}\n\nExample:\n{defn.get('example', '')}")
         self.help_text.config(state='disabled')
+        
         for w in self.fields_frame.winfo_children():
             w.destroy()
         self.field_widgets.clear()
         self.ti_btn.pack_forget()
         self.ti_label.pack_forget()
+        
         row = 0
         req = defn.get('required', [])
         opt = defn.get('optional', [])
         defaults = defn.get('defaults', {})
         file_f = defn.get('file_field')
+        
         if req:
-            ttk.Label(self.fields_frame, text="Required:", font=('TkDefaultFont', 9, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
+            ttk.Label(self.fields_frame, text="Required Fields:", font=('TkDefaultFont', 9, 'bold')).grid(
+                row=row, column=0, columnspan=3, sticky=tk.W, pady=(5, 2))
             row += 1
         for f in req:
-            self.create_field_widget(f, row, True, '', f == file_f)
-            row += 1
+            row = self.create_field_widget(f, row, defaults.get(f, ''), f == file_f)
+        
         if opt:
-            ttk.Label(self.fields_frame, text="Optional:", font=('TkDefaultFont', 9, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(10, 2))
+            ttk.Label(self.fields_frame, text="Optional Fields:", font=('TkDefaultFont', 9, 'bold')).grid(
+                row=row, column=0, columnspan=3, sticky=tk.W, pady=(10, 2))
             row += 1
         for f in opt:
-            self.create_field_widget(f, row, False, defaults.get(f, ''), f == file_f)
-            row += 1
+            row = self.create_field_widget(f, row, defaults.get(f, ''), f == file_f)
+        
         if defn.get('has_test_inputs'):
             self.ti_btn.pack(side=tk.LEFT, padx=5)
             self.ti_label.pack(side=tk.LEFT, padx=5)
             self.update_ti_label()
 
-    def create_field_widget(self, field, row, req, default, is_file):
-        lbl = f"{field}{'*' if req else ''}:"
-        ttk.Label(self.fields_frame, text=lbl).grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
-        var = tk.StringVar(value=default)
-        if is_file:
-            fr = ttk.Frame(self.fields_frame)
-            fr.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
-            ttk.Entry(fr, textvariable=var, width=42).pack(side=tk.LEFT)
-            ttk.Button(fr, text="Browse...", command=lambda v=var: self.browse_file(v)).pack(side=tk.LEFT, padx=5)
+    def create_field_widget(self, field, row, default, is_file):
+        display_label = friendly_name(field) + ":"
+        ttk.Label(self.fields_frame, text=display_label).grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+        
+        if field in BOOLEAN_FIELDS:
+            var = tk.StringVar(value=default if default else '')
+            frame = ttk.Frame(self.fields_frame)
+            frame.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+            ttk.Radiobutton(frame, text="True", variable=var, value="true").pack(side=tk.LEFT, padx=5)
+            ttk.Radiobutton(frame, text="False", variable=var, value="false").pack(side=tk.LEFT, padx=5)
+            ttk.Radiobutton(frame, text="(Not Used)", variable=var, value="").pack(side=tk.LEFT, padx=5)
+            self.field_widgets[field] = (var, 'boolean')
+        elif is_file:
+            var = tk.StringVar(value=default)
+            frame = ttk.Frame(self.fields_frame)
+            frame.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+            ttk.Entry(frame, textvariable=var, width=48).pack(side=tk.LEFT)
+            ttk.Button(frame, text="Browse...", command=lambda v=var: self.browse_file(v)).pack(side=tk.LEFT, padx=5)
+            self.field_widgets[field] = (var, 'file')
         else:
-            ttk.Entry(self.fields_frame, textvariable=var, width=52).grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
-        self.field_widgets[field] = var
+            var = tk.StringVar(value=default)
+            ttk.Entry(self.fields_frame, textvariable=var, width=55).grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+            self.field_widgets[field] = (var, 'entry')
+        
+        return row + 1
 
     def browse_file(self, var):
-        fn = filedialog.askopenfilename(title="Select Solution File", filetypes=[("Python", "*.py"), ("All", "*.*")])
+        fn = filedialog.askopenfilename(title="Select Solution File", filetypes=[("Python Files", "*.py"), ("All Files", "*.*")])
         if fn:
-            var.set(fn)
+            var.set(make_relative_path(fn))
 
     def edit_test_inputs(self):
         dn = self.test_type_var.get()
@@ -651,11 +728,11 @@ class TestEditorDialog(tk.Toplevel):
             try:
                 import ast
                 inp = ast.literal_eval(self.test_inputs_str)
-                self.ti_label.config(text=f"({len(inp)} input set(s))")
+                self.ti_label.config(text=f"({len(inp)} input set(s) defined)")
             except:
                 self.ti_label.config(text="(inputs defined)")
         else:
-            self.ti_label.config(text="(no inputs)")
+            self.ti_label.config(text="(no inputs defined)")
 
     def load_test_data(self):
         if not self.test_data:
@@ -670,22 +747,25 @@ class TestEditorDialog(tk.Toplevel):
             self.on_test_type_changed()
         self.test_inputs_str = clean_value(self.test_data.get('test_inputs', ''))
         self.update_ti_label()
-        for f, var in self.field_widgets.items():
-            var.set(clean_value(self.test_data.get(f, '')))
+        for f, (var, wtype) in self.field_widgets.items():
+            val = clean_value(self.test_data.get(f, ''))
+            var.set(val)
         self.pass_fb.set(clean_value(self.test_data.get('pass_feedback', '')))
         self.fail_fb.set(clean_value(self.test_data.get('fail_feedback', '')))
 
     def validate(self):
         dn = self.test_type_var.get()
         if not dn:
-            messagebox.showerror("Error", "Select a test type.")
+            messagebox.showerror("Error", "Please select a test type.")
             return False
         internal = DISPLAY_TO_INTERNAL.get(dn)
         defn = TEST_TYPE_DEFINITIONS.get(internal, {})
         for f in defn.get('required', []):
-            if f in self.field_widgets and not self.field_widgets[f].get().strip():
-                messagebox.showerror("Error", f"'{f}' is required.")
-                return False
+            if f in self.field_widgets:
+                var, wtype = self.field_widgets[f]
+                if not var.get().strip():
+                    messagebox.showerror("Error", f"'{friendly_name(f)}' is required.")
+                    return False
         return True
 
     def save(self):
@@ -694,7 +774,7 @@ class TestEditorDialog(tk.Toplevel):
         dn = self.test_type_var.get()
         internal = DISPLAY_TO_INTERNAL.get(dn, dn)
         self.result = {'test_type': internal}
-        for f, var in self.field_widgets.items():
+        for f, (var, wtype) in self.field_widgets.items():
             v = var.get().strip()
             if v:
                 self.result[f] = v
@@ -715,14 +795,18 @@ class ConfigEditorDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Edit Configuration")
-        self.geometry("500x320")
+        self.geometry("550x350")
         self.transient(parent)
         self.grab_set()
         self.config_file = 'config.ini'
         self.config = configparser.ConfigParser()
         self.create_widgets()
         self.load_config()
+        self.center_window()
+
+    def center_window(self):
         self.update_idletasks()
+        parent = self.master
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
@@ -730,22 +814,28 @@ class ConfigEditorDialog(tk.Toplevel):
     def create_widgets(self):
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
+        
         ef = ttk.LabelFrame(main, text="Email Settings", padding="10")
         ef.pack(fill=tk.X, pady=5)
+        
         self.smtp_srv = tk.StringVar()
         self.smtp_port = tk.StringVar()
         self.sender_email = tk.StringVar()
         self.sender_pwd = tk.StringVar()
         self.instr_email = tk.StringVar()
-        r = 0
-        for lbl, var in [("SMTP Server:", self.smtp_srv), ("SMTP Port:", self.smtp_port), ("Sender Email:", self.sender_email), ("Sender Password:", self.sender_pwd), ("Instructor Email:", self.instr_email)]:
+        
+        fields = [("SMTP Server:", self.smtp_srv), ("SMTP Port:", self.smtp_port),
+                  ("Sender Email:", self.sender_email), ("Sender Password:", self.sender_pwd),
+                  ("Instructor Email:", self.instr_email)]
+        for r, (lbl, var) in enumerate(fields):
             ttk.Label(ef, text=lbl).grid(row=r, column=0, sticky=tk.W, pady=2)
-            ttk.Entry(ef, textvariable=var, width=40).grid(row=r, column=1, pady=2)
-            r += 1
+            ttk.Entry(ef, textvariable=var, width=45).grid(row=r, column=1, pady=2, padx=5)
+        
         sf = ttk.LabelFrame(main, text="Settings", padding="10")
         sf.pack(fill=tk.X, pady=5)
         self.debug_var = tk.BooleanVar()
         ttk.Checkbutton(sf, text="Debug Mode", variable=self.debug_var).pack(anchor=tk.W)
+        
         bf = ttk.Frame(main)
         bf.pack(fill=tk.X, pady=10)
         ttk.Button(bf, text="Save", command=self.save, width=10).pack(side=tk.RIGHT, padx=5)
@@ -766,7 +856,9 @@ class ConfigEditorDialog(tk.Toplevel):
         self.debug_var.set(self.config.getboolean('settings', 'debug', fallback=False))
 
     def save(self):
-        self.config['email'] = {'smtp_server': self.smtp_srv.get(), 'smtp_port': self.smtp_port.get(), 'sender_email': self.sender_email.get(), 'sender_password': self.sender_pwd.get(), 'instructor_email': self.instr_email.get()}
+        self.config['email'] = {'smtp_server': self.smtp_srv.get(), 'smtp_port': self.smtp_port.get(),
+                                'sender_email': self.sender_email.get(), 'sender_password': self.sender_pwd.get(),
+                                'instructor_email': self.instr_email.get()}
         self.config['settings'] = {'debug': str(self.debug_var.get()).lower()}
         with open(self.config_file, 'w') as f:
             self.config.write(f)
@@ -778,14 +870,18 @@ class ExtraFilesDialog(tk.Toplevel):
     def __init__(self, parent, extra_files, solution_files):
         super().__init__(parent)
         self.title("Extra Files for Build")
-        self.geometry("600x400")
+        self.geometry("650x450")
         self.transient(parent)
         self.grab_set()
         self.result = None
         self.extra_files = list(extra_files)
         self.solution_files = solution_files
         self.create_widgets()
+        self.center_window()
+
+    def center_window(self):
         self.update_idletasks()
+        parent = self.master
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
@@ -793,6 +889,7 @@ class ExtraFilesDialog(tk.Toplevel):
     def create_widgets(self):
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
+        
         sf = ttk.LabelFrame(main, text="Auto-detected Solution Files", padding="5")
         sf.pack(fill=tk.X, pady=5)
         sol_list = tk.Listbox(sf, height=4)
@@ -800,18 +897,21 @@ class ExtraFilesDialog(tk.Toplevel):
         for f in sorted(self.solution_files):
             sol_list.insert(tk.END, f)
         if not self.solution_files:
-            sol_list.insert(tk.END, "(none)")
+            sol_list.insert(tk.END, "(none detected)")
+        
         ef = ttk.LabelFrame(main, text="Additional Files", padding="5")
         ef.pack(fill=tk.BOTH, expand=True, pady=5)
         self.extra_lb = tk.Listbox(ef, height=8)
         self.extra_lb.pack(fill=tk.BOTH, expand=True)
         for f in self.extra_files:
             self.extra_lb.insert(tk.END, f)
+        
         bf = ttk.Frame(ef)
         bf.pack(fill=tk.X, pady=5)
         ttk.Button(bf, text="Add File...", command=self.add_file).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Add Folder...", command=self.add_folder).pack(side=tk.LEFT, padx=2)
-        ttk.Button(bf, text="Remove", command=self.remove_file).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Remove Selected", command=self.remove_file).pack(side=tk.LEFT, padx=2)
+        
         bottom = ttk.Frame(main)
         bottom.pack(fill=tk.X, pady=10)
         ttk.Button(bottom, text="OK", command=self.ok, width=10).pack(side=tk.RIGHT, padx=5)
@@ -820,22 +920,24 @@ class ExtraFilesDialog(tk.Toplevel):
     def add_file(self):
         files = filedialog.askopenfilenames(title="Select Files")
         for f in files:
-            if f not in self.extra_files:
-                self.extra_files.append(f)
-                self.extra_lb.insert(tk.END, f)
+            rel = make_relative_path(f)
+            if rel not in self.extra_files:
+                self.extra_files.append(rel)
+                self.extra_lb.insert(tk.END, rel)
 
     def add_folder(self):
         folder = filedialog.askdirectory(title="Select Folder")
-        if folder and folder not in self.extra_files:
-            self.extra_files.append(folder)
-            self.extra_lb.insert(tk.END, folder)
+        if folder:
+            rel = make_relative_path(folder)
+            if rel not in self.extra_files:
+                self.extra_files.append(rel)
+                self.extra_lb.insert(tk.END, rel)
 
     def remove_file(self):
         sel = self.extra_lb.curselection()
         if sel:
-            idx = sel[0]
-            self.extra_lb.delete(idx)
-            del self.extra_files[idx]
+            del self.extra_files[sel[0]]
+            self.extra_lb.delete(sel[0])
 
     def ok(self):
         self.result = self.extra_files
@@ -850,7 +952,7 @@ class HelpDialog(tk.Toplevel):
     def __init__(self, parent, title, content):
         super().__init__(parent)
         self.title(title)
-        self.geometry("550x400")
+        self.geometry("600x450")
         self.transient(parent)
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
@@ -859,17 +961,13 @@ class HelpDialog(tk.Toplevel):
         txt.insert(tk.END, content)
         txt.config(state='disabled')
         ttk.Button(main, text="Close", command=self.destroy).pack(pady=10)
-        self.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
 
 
 class AssignmentEditorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("AutoGrader Assignment Editor")
-        self.root.geometry("1200x850")
+        self.root.geometry("1250x900")
         self.assignments = {}
         self.current_assignment = None
         self.excel_file = "assignments.xlsx"
@@ -901,31 +999,39 @@ class AssignmentEditorGUI:
     def create_widgets(self):
         self.paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         self.paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        left = ttk.Frame(self.paned, width=280)
+        
+        # Left panel
+        left = ttk.Frame(self.paned, width=300)
         self.paned.add(left, weight=1)
         ttk.Label(left, text="Assignments", font=('TkDefaultFont', 11, 'bold')).pack(pady=5)
+        
         lf = ttk.Frame(left)
         lf.pack(fill=tk.BOTH, expand=True, padx=5)
         sb = ttk.Scrollbar(lf)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.assign_lb = tk.Listbox(lf, yscrollcommand=sb.set, width=35)
+        self.assign_lb = tk.Listbox(lf, yscrollcommand=sb.set, width=38)
         self.assign_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.config(command=self.assign_lb.yview)
         self.assign_lb.bind('<<ListboxSelect>>', self.on_assignment_selected)
+        
         abf = ttk.Frame(left)
         abf.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(abf, text="New", command=self.new_assignment, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(abf, text="Rename", command=self.rename_assignment, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(abf, text="Duplicate", command=self.duplicate_assignment, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(abf, text="Delete", command=self.delete_assignment, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(abf, text="New", command=self.new_assignment, width=9).pack(side=tk.LEFT, padx=2)
+        ttk.Button(abf, text="Rename", command=self.rename_assignment, width=9).pack(side=tk.LEFT, padx=2)
+        ttk.Button(abf, text="Duplicate", command=self.duplicate_assignment, width=9).pack(side=tk.LEFT, padx=2)
+        ttk.Button(abf, text="Delete", command=self.delete_assignment, width=9).pack(side=tk.LEFT, padx=2)
+        
         rf = ttk.Frame(left)
         rf.pack(fill=tk.X, padx=5, pady=2)
-        ttk.Button(rf, text="Move Up", command=self.move_assignment_up, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(rf, text="Move Down", command=self.move_assignment_down, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(rf, text="Move Up", command=self.move_assignment_up, width=12).pack(side=tk.LEFT, padx=2)
+        ttk.Button(rf, text="Move Down", command=self.move_assignment_down, width=12).pack(side=tk.LEFT, padx=2)
+        
+        # Right panel
         right = ttk.Frame(self.paned)
         self.paned.add(right, weight=3)
         self.tests_label = ttk.Label(right, text="Tests", font=('TkDefaultFont', 11, 'bold'))
         self.tests_label.pack(pady=5)
+        
         tf = ttk.Frame(right)
         tf.pack(fill=tk.BOTH, expand=True, padx=5)
         cols = ('type', 'description', 'key_param')
@@ -933,55 +1039,67 @@ class AssignmentEditorGUI:
         self.tests_tree.heading('type', text='Test Type')
         self.tests_tree.heading('description', text='Description')
         self.tests_tree.heading('key_param', text='Key Parameter')
-        self.tests_tree.column('type', width=200)
-        self.tests_tree.column('description', width=230)
-        self.tests_tree.column('key_param', width=200)
+        self.tests_tree.column('type', width=220)
+        self.tests_tree.column('description', width=250)
+        self.tests_tree.column('key_param', width=220)
         ts = ttk.Scrollbar(tf, orient="vertical", command=self.tests_tree.yview)
         self.tests_tree.configure(yscrollcommand=ts.set)
         self.tests_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         ts.pack(side=tk.RIGHT, fill=tk.Y)
         self.tests_tree.bind('<Double-1>', self.edit_test)
+        
         tbf = ttk.Frame(right)
         tbf.pack(fill=tk.X, padx=5, pady=5)
         ttk.Button(tbf, text="Add", command=self.add_test, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Button(tbf, text="Edit", command=self.edit_test, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tbf, text="Duplicate", command=self.duplicate_test, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tbf, text="Duplicate", command=self.duplicate_test, width=9).pack(side=tk.LEFT, padx=2)
         ttk.Button(tbf, text="Delete", command=self.delete_test, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Separator(tbf, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
-        ttk.Button(tbf, text="Up", command=self.move_test_up, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tbf, text="Down", command=self.move_test_down, width=6).pack(side=tk.LEFT, padx=2)
-        qf = ttk.LabelFrame(right, text="Quick Add", padding="5")
+        ttk.Button(tbf, text="Move Up", command=self.move_test_up, width=9).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tbf, text="Move Down", command=self.move_test_down, width=10).pack(side=tk.LEFT, padx=2)
+        
+        qf = ttk.LabelFrame(right, text="Quick Add Common Tests", padding="5")
         qf.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(qf, text="+ Compare Solution", command=self.quick_add_compare_solution, width=18).pack(side=tk.LEFT, padx=5)
-        ttk.Button(qf, text="+ Variable Value", command=self.quick_add_variable_value, width=16).pack(side=tk.LEFT, padx=5)
-        ttk.Button(qf, text="+ Test Function", command=self.quick_add_test_function, width=14).pack(side=tk.LEFT, padx=5)
+        ttk.Button(qf, text="+ Compare Solution", command=self.quick_add_compare_solution, width=20).pack(side=tk.LEFT, padx=5)
+        ttk.Button(qf, text="+ Variable Value", command=self.quick_add_variable_value, width=17).pack(side=tk.LEFT, padx=5)
+        ttk.Button(qf, text="+ Test Function", command=self.quick_add_test_function, width=16).pack(side=tk.LEFT, padx=5)
+        
         tsf = ttk.LabelFrame(right, text="Test Current Assignment", padding="5")
         tsf.pack(fill=tk.X, padx=5, pady=5)
         tr = ttk.Frame(tsf)
         tr.pack(fill=tk.X)
-        ttk.Button(tr, text="Select Student File...", command=self.browse_sample_file, width=18).pack(side=tk.LEFT, padx=5)
+        ttk.Button(tr, text="Select Student File...", command=self.browse_sample_file, width=20).pack(side=tk.LEFT, padx=5)
         self.sample_lbl = ttk.Label(tr, text="No file selected", foreground='gray')
         self.sample_lbl.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         self.update_sample_label()
         ttk.Button(tr, text="Run Tests", command=self.test_current_assignment, width=12).pack(side=tk.RIGHT, padx=5)
+        
+        # Bottom
         bottom = ttk.Frame(self.root)
         bottom.pack(fill=tk.X, padx=5, pady=5)
-        ff = ttk.LabelFrame(bottom, text="File", padding="5")
+        
+        ff = ttk.LabelFrame(bottom, text="File Operations", padding="5")
         ff.pack(side=tk.LEFT, padx=5)
-        ttk.Button(ff, text="Save Assignments", command=self.save_assignments, width=16).pack(side=tk.LEFT, padx=2)
-        ttk.Button(ff, text="Reload", command=self.load_assignments, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(ff, text="Edit Config...", command=self.edit_config, width=12).pack(side=tk.LEFT, padx=2)
-        bf = ttk.LabelFrame(bottom, text="Build", padding="5")
+        ttk.Button(ff, text="Save Assignments", command=self.save_assignments, width=17).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ff, text="Reload Assignments", command=self.load_assignments, width=18).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ff, text="Edit Config...", command=self.edit_config, width=13).pack(side=tk.LEFT, padx=2)
+        
+        bf = ttk.LabelFrame(bottom, text="Build Tools", padding="5")
         bf.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(bf, text="Encode Resources", command=self.encode_resources, width=14).pack(side=tk.LEFT, padx=2)
-        ttk.Button(bf, text="Launch AutoGrader", command=self.launch_autograder_gui, width=16).pack(side=tk.LEFT, padx=2)
-        ttk.Button(bf, text="Extra Files...", command=self.manage_extra_files, width=12).pack(side=tk.LEFT, padx=2)
-        ttk.Button(bf, text="Build Executable", command=self.build_executable, width=14).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Encode Resources", command=self.encode_resources, width=17).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Launch AutoGrader", command=self.launch_autograder_gui, width=18).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Extra Files...", command=self.manage_extra_files, width=13).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Build Executable", command=self.build_executable, width=16).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="?", command=self.show_build_help, width=3).pack(side=tk.LEFT, padx=2)
+        
         logf = ttk.LabelFrame(self.root, text="Log", padding="5")
         logf.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.log_text = scrolledtext.ScrolledText(logf, height=5, wrap=tk.WORD)
+        self.log_text = scrolledtext.ScrolledText(logf, height=8, wrap=tk.WORD)
         self.log_text.pack(fill=tk.BOTH, expand=True)
+        self.log_text.tag_config('pass', foreground='green')
+        self.log_text.tag_config('fail', foreground='red')
+        self.log_text.tag_config('info', foreground='blue')
+        self.log_text.tag_config('header', foreground='black', font=('TkDefaultFont', 10, 'bold'))
 
     def update_sample_label(self):
         if self.sample_file and os.path.exists(self.sample_file):
@@ -989,38 +1107,47 @@ class AssignmentEditorGUI:
         else:
             self.sample_lbl.config(text="No file selected", foreground='gray')
 
-    def log(self, msg):
+    def log(self, msg, tag=None):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
+        if tag:
+            self.log_text.insert(tk.END, f"[{ts}] ", None)
+            self.log_text.insert(tk.END, f"{msg}\n", tag)
+        else:
+            self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
         self.log_text.see(tk.END)
         self.root.update_idletasks()
 
     def show_build_help(self):
-        txt = """BUILD HELP
+        txt = """BUILD PROCESS HELP
 
-Testing:
-1. Encode Resources
-2. Launch AutoGrader
-3. Verify it works
+=== Testing the AutoGrader ===
+1. Click "Encode Resources" to embed config.ini and assignments.xlsx
+2. Click "Launch AutoGrader" to test the GUI application
+3. Verify everything works correctly before building
 
-Building:
-1. Save assignments
-2. Encode Resources
-3. Extra Files (optional)
-4. Build Executable
+=== Building the Executable ===
+1. Save your assignments (if modified)
+2. Click "Encode Resources" to embed the latest files
+3. Click "Extra Files..." to add any additional files needed
+4. Click "Build Executable" to create the standalone application
 
-Notes:
-- Solution files auto-included
-- Output in dist/ folder
-- Need PyInstaller installed"""
-        HelpDialog(self.root, "Build Help", txt)
+=== Required Files ===
+- config.ini, assignments.xlsx, autograder.py
+- autograder-gui-app.py, encode_resources.py
+
+=== Notes ===
+- Solution files are automatically included
+- Output will be in the 'dist' folder
+- Requires: pip install pyinstaller"""
+        HelpDialog(self.root, "Build Process Help", txt)
+
 
     def load_assignments(self):
         self.assignments.clear()
         self.assign_lb.delete(0, tk.END)
         self.solution_files.clear()
         if not os.path.exists(self.excel_file):
-            self.log(f"No {self.excel_file} found.")
+            self.log(f"No {self.excel_file} found. Starting fresh.", 'info')
             return
         try:
             xl = pd.ExcelFile(self.excel_file)
@@ -1032,11 +1159,10 @@ Notes:
                     sf = t.get('solution_file')
                     if sf and pd.notna(sf):
                         self.solution_files.add(str(sf))
-            self.log(f"Loaded {len(self.assignments)} assignments")
+            self.log(f"Loaded {len(self.assignments)} assignments", 'info')
             self.modified = False
         except Exception as e:
-            self.log(f"Error: {e}")
-            messagebox.showerror("Error", f"Failed to load: {e}")
+            self.log(f"Error loading: {e}", 'fail')
 
     def save_assignments(self):
         try:
@@ -1045,104 +1171,12 @@ Notes:
                 for name in order:
                     if name in self.assignments:
                         pd.DataFrame(self.assignments[name]).to_excel(w, sheet_name=name, index=False)
-            self.log(f"Saved {len(self.assignments)} assignments")
+            self.log(f"Saved {len(self.assignments)} assignments", 'pass')
             self.modified = False
             messagebox.showinfo("Saved", f"Saved to {self.excel_file}")
         except Exception as e:
-            self.log(f"Error: {e}")
-            messagebox.showerror("Error", f"Failed: {e}")
-
-    def new_assignment(self):
-        name = self.prompt_string("New Assignment", "Name:")
-        if not name:
-            return
-        if name in self.assignments:
-            messagebox.showerror("Error", "Name exists.")
-            return
-        self.assignments[name] = []
-        self.assign_lb.insert(tk.END, name)
-        self.assign_lb.selection_clear(0, tk.END)
-        self.assign_lb.selection_set(tk.END)
-        self.on_assignment_selected(None)
-        self.modified = True
-        self.log(f"Created: {name}")
-
-    def rename_assignment(self):
-        sel = self.assign_lb.curselection()
-        if not sel:
-            messagebox.showwarning("Select", "Select an assignment.")
-            return
-        old = self.assign_lb.get(sel[0])
-        new = self.prompt_string("Rename", "New name:", old)
-        if not new or new == old:
-            return
-        if new in self.assignments:
-            messagebox.showerror("Error", "Name exists.")
-            return
-        self.assignments[new] = self.assignments.pop(old)
-        self.assign_lb.delete(sel[0])
-        self.assign_lb.insert(sel[0], new)
-        self.assign_lb.selection_set(sel[0])
-        self.current_assignment = new
-        self.tests_label.config(text=f"Tests - {new}")
-        self.modified = True
-        self.log(f"Renamed: {old} -> {new}")
-
-    def duplicate_assignment(self):
-        sel = self.assign_lb.curselection()
-        if not sel:
-            messagebox.showwarning("Select", "Select an assignment.")
-            return
-        old = self.assign_lb.get(sel[0])
-        new = self.prompt_string("Duplicate", "Name:", f"{old} (Copy)")
-        if not new:
-            return
-        if new in self.assignments:
-            messagebox.showerror("Error", "Name exists.")
-            return
-        import copy
-        self.assignments[new] = copy.deepcopy(self.assignments[old])
-        self.assign_lb.insert(tk.END, new)
-        self.modified = True
-        self.log(f"Duplicated: {old} -> {new}")
-
-    def delete_assignment(self):
-        sel = self.assign_lb.curselection()
-        if not sel:
-            messagebox.showwarning("Select", "Select an assignment.")
-            return
-        name = self.assign_lb.get(sel[0])
-        if not messagebox.askyesno("Confirm", f"Delete '{name}'?"):
-            return
-        del self.assignments[name]
-        self.assign_lb.delete(sel[0])
-        self.tests_tree.delete(*self.tests_tree.get_children())
-        self.current_assignment = None
-        self.tests_label.config(text="Tests")
-        self.modified = True
-        self.log(f"Deleted: {name}")
-
-    def move_assignment_up(self):
-        sel = self.assign_lb.curselection()
-        if not sel or sel[0] == 0:
-            return
-        idx = sel[0]
-        name = self.assign_lb.get(idx)
-        self.assign_lb.delete(idx)
-        self.assign_lb.insert(idx - 1, name)
-        self.assign_lb.selection_set(idx - 1)
-        self.modified = True
-
-    def move_assignment_down(self):
-        sel = self.assign_lb.curselection()
-        if not sel or sel[0] >= self.assign_lb.size() - 1:
-            return
-        idx = sel[0]
-        name = self.assign_lb.get(idx)
-        self.assign_lb.delete(idx)
-        self.assign_lb.insert(idx + 1, name)
-        self.assign_lb.selection_set(idx + 1)
-        self.modified = True
+            self.log(f"Error saving: {e}", 'fail')
+            messagebox.showerror("Error", str(e))
 
     def on_assignment_selected(self, event):
         sel = self.assign_lb.curselection()
@@ -1170,8 +1204,100 @@ Notes:
                 if v:
                     if 'file' in kpf.lower():
                         v = os.path.basename(v)
-                    kp = v[:35] + ('...' if len(v) > 35 else '')
-            self.tests_tree.insert('', tk.END, values=(dn, desc[:45], kp))
+                    kp = v[:40] + ('...' if len(v) > 40 else '')
+            self.tests_tree.insert('', tk.END, values=(dn, desc[:50], kp))
+
+    def new_assignment(self):
+        name = self.prompt_string("New Assignment", "Enter assignment name:")
+        if not name:
+            return
+        if name in self.assignments:
+            messagebox.showerror("Error", "Name already exists.")
+            return
+        self.assignments[name] = []
+        self.assign_lb.insert(tk.END, name)
+        self.assign_lb.selection_clear(0, tk.END)
+        self.assign_lb.selection_set(tk.END)
+        self.on_assignment_selected(None)
+        self.modified = True
+        self.log(f"Created: {name}", 'info')
+
+    def rename_assignment(self):
+        sel = self.assign_lb.curselection()
+        if not sel:
+            messagebox.showwarning("No Selection", "Select an assignment first.")
+            return
+        old = self.assign_lb.get(sel[0])
+        new = self.prompt_string("Rename", "Enter new name:", old)
+        if not new or new == old:
+            return
+        if new in self.assignments:
+            messagebox.showerror("Error", "Name already exists.")
+            return
+        self.assignments[new] = self.assignments.pop(old)
+        self.assign_lb.delete(sel[0])
+        self.assign_lb.insert(sel[0], new)
+        self.assign_lb.selection_set(sel[0])
+        self.current_assignment = new
+        self.tests_label.config(text=f"Tests - {new}")
+        self.modified = True
+        self.log(f"Renamed: {old} -> {new}", 'info')
+
+    def duplicate_assignment(self):
+        sel = self.assign_lb.curselection()
+        if not sel:
+            messagebox.showwarning("No Selection", "Select an assignment first.")
+            return
+        old = self.assign_lb.get(sel[0])
+        new = self.prompt_string("Duplicate", "Enter name for copy:", f"{old} (Copy)")
+        if not new:
+            return
+        if new in self.assignments:
+            messagebox.showerror("Error", "Name already exists.")
+            return
+        import copy
+        self.assignments[new] = copy.deepcopy(self.assignments[old])
+        self.assign_lb.insert(tk.END, new)
+        self.modified = True
+        self.log(f"Duplicated: {old} -> {new}", 'info')
+
+    def delete_assignment(self):
+        sel = self.assign_lb.curselection()
+        if not sel:
+            messagebox.showwarning("No Selection", "Select an assignment first.")
+            return
+        name = self.assign_lb.get(sel[0])
+        if not messagebox.askyesno("Confirm", f"Delete '{name}'?"):
+            return
+        del self.assignments[name]
+        self.assign_lb.delete(sel[0])
+        self.tests_tree.delete(*self.tests_tree.get_children())
+        self.current_assignment = None
+        self.tests_label.config(text="Tests")
+        self.modified = True
+        self.log(f"Deleted: {name}", 'info')
+
+    def move_assignment_up(self):
+        sel = self.assign_lb.curselection()
+        if not sel or sel[0] == 0:
+            return
+        idx = sel[0]
+        name = self.assign_lb.get(idx)
+        self.assign_lb.delete(idx)
+        self.assign_lb.insert(idx - 1, name)
+        self.assign_lb.selection_set(idx - 1)
+        self.modified = True
+
+    def move_assignment_down(self):
+        sel = self.assign_lb.curselection()
+        if not sel or sel[0] >= self.assign_lb.size() - 1:
+            return
+        idx = sel[0]
+        name = self.assign_lb.get(idx)
+        self.assign_lb.delete(idx)
+        self.assign_lb.insert(idx + 1, name)
+        self.assign_lb.selection_set(idx + 1)
+        self.modified = True
 
     def get_selected_test_idx(self):
         sel = self.tests_tree.selection()
@@ -1181,7 +1307,7 @@ Notes:
 
     def add_test(self):
         if not self.current_assignment:
-            messagebox.showwarning("Select", "Select an assignment first.")
+            messagebox.showwarning("No Assignment", "Select an assignment first.")
             return
         dlg = TestEditorDialog(self.root, title="Add Test")
         self.root.wait_window(dlg)
@@ -1192,13 +1318,13 @@ Notes:
             sf = dlg.result.get('solution_file')
             if sf:
                 self.solution_files.add(sf)
-            self.log(f"Added: {dlg.result.get('test_type')}")
+            self.log(f"Added test", 'info')
 
     def edit_test(self, event=None):
         idx = self.get_selected_test_idx()
         if idx is None:
             if event is None:
-                messagebox.showwarning("Select", "Select a test.")
+                messagebox.showwarning("No Selection", "Select a test first.")
             return
         data = self.assignments[self.current_assignment][idx]
         dlg = TestEditorDialog(self.root, test_data=data, title="Edit Test")
@@ -1210,31 +1336,31 @@ Notes:
             sf = dlg.result.get('solution_file')
             if sf:
                 self.solution_files.add(sf)
-            self.log(f"Updated: {dlg.result.get('test_type')}")
+            self.log(f"Updated test", 'info')
 
     def duplicate_test(self):
         idx = self.get_selected_test_idx()
         if idx is None:
-            messagebox.showwarning("Select", "Select a test.")
+            messagebox.showwarning("No Selection", "Select a test first.")
             return
         import copy
         cp = copy.deepcopy(self.assignments[self.current_assignment][idx])
         self.assignments[self.current_assignment].insert(idx + 1, cp)
         self.refresh_tests_tree()
         self.modified = True
-        self.log("Duplicated test")
+        self.log("Duplicated test", 'info')
 
     def delete_test(self):
         idx = self.get_selected_test_idx()
         if idx is None:
-            messagebox.showwarning("Select", "Select a test.")
+            messagebox.showwarning("No Selection", "Select a test first.")
             return
-        if not messagebox.askyesno("Confirm", "Delete test?"):
+        if not messagebox.askyesno("Confirm", "Delete this test?"):
             return
         del self.assignments[self.current_assignment][idx]
         self.refresh_tests_tree()
         self.modified = True
-        self.log("Deleted test")
+        self.log("Deleted test", 'info')
 
     def move_test_up(self):
         idx = self.get_selected_test_idx()
@@ -1260,7 +1386,7 @@ Notes:
 
     def quick_add_compare_solution(self):
         if not self.current_assignment:
-            messagebox.showwarning("Select", "Select an assignment.")
+            messagebox.showwarning("No Assignment", "Select an assignment first.")
             return
         dlg = TestEditorDialog(self.root, test_data={'test_type': 'compare_solution'}, title="Add Compare Solution")
         self.root.wait_window(dlg)
@@ -1271,11 +1397,11 @@ Notes:
             sf = dlg.result.get('solution_file')
             if sf:
                 self.solution_files.add(sf)
-            self.log("Added Compare Solution")
+            self.log("Added Compare Solution test", 'info')
 
     def quick_add_variable_value(self):
         if not self.current_assignment:
-            messagebox.showwarning("Select", "Select an assignment.")
+            messagebox.showwarning("No Assignment", "Select an assignment first.")
             return
         dlg = TestEditorDialog(self.root, test_data={'test_type': 'variable_value'}, title="Add Variable Value")
         self.root.wait_window(dlg)
@@ -1283,11 +1409,11 @@ Notes:
             self.assignments[self.current_assignment].append(dlg.result)
             self.refresh_tests_tree()
             self.modified = True
-            self.log("Added Variable Value")
+            self.log("Added Variable Value test", 'info')
 
     def quick_add_test_function(self):
         if not self.current_assignment:
-            messagebox.showwarning("Select", "Select an assignment.")
+            messagebox.showwarning("No Assignment", "Select an assignment first.")
             return
         dlg = TestEditorDialog(self.root, test_data={'test_type': 'test_function_solution'}, title="Add Test Function")
         self.root.wait_window(dlg)
@@ -1298,105 +1424,329 @@ Notes:
             sf = dlg.result.get('solution_file')
             if sf:
                 self.solution_files.add(sf)
-            self.log("Added Test Function")
-
+            self.log("Added Test Function test", 'info')
 
     def browse_sample_file(self):
-        fn = filedialog.askopenfilename(title="Select Student File", filetypes=[("Python", "*.py"), ("All", "*.*")])
+        fn = filedialog.askopenfilename(title="Select Student File", filetypes=[("Python Files", "*.py"), ("All Files", "*.*")])
         if fn:
-            self.sample_file = fn
+            self.sample_file = make_relative_path(fn)
             self.update_sample_label()
             self.save_settings()
 
     def test_current_assignment(self):
         if not self.current_assignment:
-            messagebox.showwarning("Select", "Select an assignment.")
+            messagebox.showwarning("No Assignment", "Select an assignment first.")
             return
         if not self.sample_file or not os.path.exists(self.sample_file):
-            messagebox.showwarning("File", "Select a valid student file.")
+            messagebox.showwarning("No File", "Select a valid student file first.")
             return
-        self.log(f"Testing {self.current_assignment} with {os.path.basename(self.sample_file)}")
+        
+        self.log("=" * 60, 'header')
+        self.log(f"TESTING: {self.current_assignment}", 'header')
+        self.log(f"File: {self.sample_file}", 'info')
+        self.log("=" * 60, 'header')
+        
         try:
             from autograder import AutoGrader
             import matplotlib.pyplot as plt
             plt.close('all')
+            
             grader = AutoGrader(self.sample_file)
-            grader.execute_script()
+            self.log("\n[1] EXECUTING STUDENT SCRIPT...", 'header')
+            success = grader.execute_script()
+            if success:
+                self.log("    Script executed successfully", 'pass')
+                if grader.captured_vars:
+                    var_count = len(grader.captured_vars)
+                    vars_preview = list(grader.captured_vars.keys())[:5]
+                    self.log(f"    Captured {var_count} variables: {', '.join(vars_preview)}{'...' if var_count > 5 else ''}")
+            else:
+                self.log("    Script execution FAILED!", 'fail')
+                self.log("    Check for syntax errors or runtime exceptions.")
+                return
+            
             tests = self.assignments[self.current_assignment]
-            self.run_tests_on_grader(grader, tests)
-            s = grader.get_summary()
-            self.log(f"Results: {s['passed']}/{s['total_tests']} ({s['success_rate']:.1f}%)")
+            total_tests = len(tests)
+            self.log(f"\n[2] RUNNING {total_tests} TESTS...", 'header')
+            self.log("-" * 50)
+            
+            passed_count = 0
+            failed_count = 0
+            
+            for i, t in enumerate(tests):
+                tt = clean_value(t.get('test_type', '')).lower()
+                defn = TEST_TYPE_DEFINITIONS.get(tt, {})
+                display = defn.get('display_name', tt)
+                desc = clean_value(t.get('description', ''))
+                
+                test_label = f"Test {i+1}/{total_tests}: {display}"
+                if desc:
+                    test_label += f" - {desc}"
+                self.log(f"\n  {test_label}")
+                
+                try:
+                    result = self.run_single_test(grader, t, tt)
+                    if result:
+                        self.log(f"    >>> PASSED", 'pass')
+                        passed_count += 1
+                    else:
+                        self.log(f"    >>> FAILED", 'fail')
+                        failed_count += 1
+                except Exception as e:
+                    self.log(f"    >>> ERROR: {e}", 'fail')
+                    failed_count += 1
+            
+            self.log("\n" + "=" * 60, 'header')
+            self.log(f"SUMMARY: {passed_count}/{total_tests} tests passed", 'header')
+            self.log("=" * 60, 'header')
+            
+            if passed_count == total_tests:
+                self.log("All tests passed!", 'pass')
+            elif passed_count == 0:
+                self.log("All tests failed.", 'fail')
+            else:
+                self.log(f"{failed_count} test(s) need attention.", 'info')
+                
+        except ImportError as e:
+            self.log(f"Import error: {e}", 'fail')
+            self.log("Make sure autograder.py is in the current directory", 'fail')
         except Exception as e:
-            self.log(f"Error: {e}")
+            self.log(f"Unexpected error: {e}", 'fail')
+            import traceback
+            self.log(traceback.format_exc())
 
-    def run_tests_on_grader(self, grader, tests):
-        for t in tests:
-            tt = clean_value(t.get('test_type', '')).lower()
-            try:
-                if tt == 'variable_value':
-                    grader.check_variable_value(t['variable_name'], eval(str(t['expected_value'])), float(t.get('tolerance', 1e-6)))
-                elif tt == 'variable_type':
-                    tm = {'int': int, 'float': float, 'str': str, 'list': list, 'dict': dict, 'tuple': tuple}
-                    grader.check_variable_type(t['variable_name'], tm.get(t['expected_value'], str))
-                elif tt == 'function_exists':
-                    grader.check_function_exists(t['function_name'])
-                elif tt == 'function_called':
-                    grader.check_function_called(t['function_name'], str(t.get('match_any_prefix', 'false')).lower() == 'true')
-                elif tt == 'function_not_called':
-                    grader.check_function_not_called(t['function_name'], str(t.get('match_any_prefix', 'false')).lower() == 'true')
-                elif tt == 'compare_solution':
-                    vs = [v.strip() for v in str(t['variables_to_compare']).split(',')]
-                    grader.compare_with_solution(t['solution_file'], vs, float(t.get('tolerance', 1e-6)))
-                elif tt == 'for_loop_used':
-                    grader.check_for_loop_used()
-                elif tt == 'while_loop_used':
-                    grader.check_while_loop_used()
-                elif tt == 'if_statement_used':
-                    grader.check_if_statement_used()
-                elif tt == 'operator_used':
-                    grader.check_operator_used(t['operator'])
-                elif tt == 'code_contains':
-                    grader.check_code_contains(t['phrase'], str(t.get('case_sensitive', 'true')).lower() == 'true')
-                elif tt == 'plot_created':
-                    grader.check_plot_created()
-                elif tt == 'list_equals':
-                    grader.check_list_equals(t['variable_name'], eval(str(t['expected_list'])), str(t.get('order_matters', 'true')).lower() == 'true')
-                elif tt == 'array_equals':
-                    grader.check_array_equals(t['variable_name'], eval(str(t['expected_array'])), float(t.get('tolerance', 1e-6)))
-                else:
-                    self.log(f"  Unknown: {tt}")
-            except Exception as e:
-                self.log(f"  Error in {tt}: {e}")
+    def run_single_test(self, grader, t, tt):
+        if tt == 'variable_value':
+            var = t['variable_name']
+            exp = eval(str(t['expected_value']))
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Checking: {var} == {exp} (tol: {tol})")
+            result = grader.check_variable_value(var, exp, tol)
+            if not result and var in grader.captured_vars:
+                self.log(f"    Actual: {grader.captured_vars[var]}")
+            return result
+        elif tt == 'variable_type':
+            var = t['variable_name']
+            exp_type = t['expected_value']
+            tm = {'int': int, 'float': float, 'str': str, 'list': list, 'dict': dict, 'tuple': tuple}
+            self.log(f"    Checking: type({var}) == {exp_type}")
+            result = grader.check_variable_type(var, tm.get(exp_type, str))
+            if not result and var in grader.captured_vars:
+                self.log(f"    Actual type: {type(grader.captured_vars[var]).__name__}")
+            return result
+        elif tt == 'function_exists':
+            func = t['function_name']
+            self.log(f"    Checking: '{func}' is defined")
+            return grader.check_function_exists(func)
+        elif tt == 'function_called':
+            func = t['function_name']
+            mp = str(t.get('match_any_prefix', '')).lower() == 'true'
+            self.log(f"    Checking: '{func}' is called")
+            return grader.check_function_called(func, mp)
+        elif tt == 'function_not_called':
+            func = t['function_name']
+            mp = str(t.get('match_any_prefix', '')).lower() == 'true'
+            self.log(f"    Checking: '{func}' is NOT called")
+            return grader.check_function_not_called(func, mp)
+        elif tt == 'compare_solution':
+            sol = t['solution_file']
+            vs = [v.strip() for v in str(t['variables_to_compare']).split(',')]
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Solution: {sol}")
+            self.log(f"    Variables: {', '.join(vs)}")
+            return grader.compare_with_solution(sol, vs, tol)
+        elif tt == 'for_loop_used':
+            self.log(f"    Checking: for loop used")
+            return grader.check_for_loop_used()
+        elif tt == 'while_loop_used':
+            self.log(f"    Checking: while loop used")
+            return grader.check_while_loop_used()
+        elif tt == 'if_statement_used':
+            self.log(f"    Checking: if statement used")
+            return grader.check_if_statement_used()
+        elif tt == 'operator_used':
+            op = t['operator']
+            self.log(f"    Checking: operator '{op}' used")
+            return grader.check_operator_used(op)
+        elif tt == 'code_contains':
+            phrase = t['phrase']
+            cs = str(t.get('case_sensitive', '')).lower() != 'false'
+            self.log(f"    Checking: code contains '{phrase}'")
+            return grader.check_code_contains(phrase, cs)
+        elif tt == 'loop_iterations':
+            var = t['loop_variable']
+            exp = t.get('expected_count')
+            self.log(f"    Checking: loop counter '{var}'")
+            result = grader.count_loop_iterations(var, int(exp) if exp else None)
+            if var in grader.captured_vars:
+                self.log(f"    Actual: {grader.captured_vars[var]}")
+            return result is not None
+        elif tt == 'list_equals':
+            var = t['variable_name']
+            exp = eval(str(t['expected_list']))
+            order = str(t.get('order_matters', '')).lower() != 'false'
+            self.log(f"    Checking: {var} == {exp}")
+            result = grader.check_list_equals(var, exp, order)
+            if not result and var in grader.captured_vars:
+                self.log(f"    Actual: {grader.captured_vars[var]}")
+            return result
+        elif tt == 'array_equals':
+            var = t['variable_name']
+            exp = eval(str(t['expected_array']))
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Checking: {var} array equals expected")
+            result = grader.check_array_equals(var, exp, tol)
+            if not result and var in grader.captured_vars:
+                self.log(f"    Actual: {grader.captured_vars[var]}")
+            return result
+        elif tt == 'array_size':
+            var = t['variable_name']
+            min_s = t.get('min_size')
+            max_s = t.get('max_size')
+            exact_s = t.get('exact_size')
+            self.log(f"    Checking size of '{var}'")
+            return grader.check_array_size(var, 
+                min_size=int(min_s) if min_s else None,
+                max_size=int(max_s) if max_s else None,
+                exact_size=int(exact_s) if exact_s else None)
+        elif tt == 'array_values_in_range':
+            var = t['variable_name']
+            min_v = t.get('min_value')
+            max_v = t.get('max_value')
+            self.log(f"    Checking: values in '{var}' in range [{min_v}, {max_v}]")
+            return grader.check_array_values_in_range(var,
+                min_value=float(min_v) if min_v else None,
+                max_value=float(max_v) if max_v else None)
+        elif tt == 'check_relationship':
+            v1 = t['var1_name']
+            v2 = t['var2_name']
+            rel = t['relationship']
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Checking: {v2} = f({v1})")
+            return grader.check_variable_relationship(v1, v2, eval(rel), tol)
+        elif tt == 'plot_created':
+            self.log(f"    Checking: plot created")
+            return grader.check_plot_created()
+        elif tt == 'plot_properties':
+            title = t.get('title')
+            xlabel = t.get('xlabel')
+            ylabel = t.get('ylabel')
+            has_legend = t.get('has_legend')
+            has_grid = t.get('has_grid')
+            self.log(f"    Checking plot properties")
+            return grader.check_plot_properties(
+                title=title if title else None,
+                xlabel=xlabel if xlabel else None,
+                ylabel=ylabel if ylabel else None,
+                has_legend=str(has_legend).lower() == 'true' if has_legend else None,
+                has_grid=str(has_grid).lower() == 'true' if has_grid else None)
+        elif tt == 'plot_has_xlabel':
+            self.log(f"    Checking: plot has x label")
+            return grader.check_plot_has_xlabel()
+        elif tt == 'plot_has_ylabel':
+            self.log(f"    Checking: plot has y label")
+            return grader.check_plot_has_ylabel()
+        elif tt == 'plot_has_title':
+            self.log(f"    Checking: plot has title")
+            return grader.check_plot_has_title()
+        elif tt == 'plot_data_length':
+            line_idx = int(t.get('line_index', 0))
+            min_len = t.get('min_length')
+            max_len = t.get('max_length')
+            exact_len = t.get('exact_length')
+            self.log(f"    Checking plot data length (line {line_idx})")
+            return grader.check_plot_data_length(
+                min_length=int(min_len) if min_len else None,
+                max_length=int(max_len) if max_len else None,
+                exact_length=int(exact_len) if exact_len else None,
+                line_index=line_idx)
+        elif tt == 'plot_line_style':
+            style = t['expected_style']
+            line_idx = int(t.get('line_index', 0))
+            self.log(f"    Checking: line {line_idx} style == '{style}'")
+            return grader.check_plot_line_style(style, line_idx)
+        elif tt == 'plot_has_line_style':
+            style = t['expected_style']
+            self.log(f"    Checking: any line has style '{style}'")
+            return grader.check_plot_has_line_style(style)
+        elif tt == 'check_multiple_lines':
+            min_lines = int(t['min_lines'])
+            self.log(f"    Checking: >= {min_lines} lines")
+            return grader.check_multiple_lines(min_lines)
+        elif tt == 'check_exact_lines':
+            exact = int(t['exact_lines'])
+            self.log(f"    Checking: exactly {exact} lines")
+            return grader.check_exact_lines(exact)
+        elif tt == 'compare_plot_solution':
+            sol = t['solution_file']
+            line_idx = int(t.get('line_index', 0))
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Comparing plot with solution: {sol}")
+            return grader.compare_plot_with_solution(sol, line_idx, tol,
+                check_color=str(t.get('check_color', '')).lower() == 'true',
+                check_linestyle=str(t.get('check_linestyle', '')).lower() == 'true')
+        elif tt == 'check_function_any_line':
+            func = t['function']
+            min_len = int(t.get('min_length', 1))
+            tol = float(t.get('tolerance', 1e-6))
+            self.log(f"    Checking: plot matches {func}")
+            return grader.check_function_any_line(eval(func), min_len, tol)
+        else:
+            self.log(f"    Unknown test type: {tt}", 'info')
+            return False
 
     def launch_autograder_gui(self):
-        self.log("Launching AutoGrader GUI...")
+        self.log("Launching AutoGrader GUI...", 'info')
+        gui_file = 'autograder-gui-app.py'
+        if not os.path.exists(gui_file):
+            self.log(f"ERROR: {gui_file} not found!", 'fail')
+            messagebox.showerror("Error", f"{gui_file} not found!")
+            return
+        if not os.path.exists('embedded_resources.py'):
+            self.log("WARNING: embedded_resources.py not found", 'fail')
+            if not messagebox.askyesno("Warning", "embedded_resources.py not found. Launch anyway?"):
+                return
         try:
-            subprocess.Popen([sys.executable, 'autograder-gui-app.py'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.log("Launched")
+            process = subprocess.Popen([sys.executable, gui_file], cwd=os.getcwd())
+            self.log(f"Launched (PID: {process.pid})", 'pass')
         except Exception as e:
-            self.log(f"Error: {e}")
-            messagebox.showerror("Error", f"Launch failed: {e}")
+            self.log(f"Error: {e}", 'fail')
 
     def edit_config(self):
         ConfigEditorDialog(self.root)
 
     def encode_resources(self):
-        self.log("Encoding resources...")
-        if self.modified and messagebox.askyesno("Save?", "Save first?"):
-            self.save_assignments()
+        self.log("Encoding resources...", 'info')
+        missing = []
+        if not os.path.exists('config.ini'):
+            missing.append('config.ini')
+        if not os.path.exists('assignments.xlsx'):
+            missing.append('assignments.xlsx')
+        if not os.path.exists('encode_resources.py'):
+            missing.append('encode_resources.py')
+        if missing:
+            self.log(f"ERROR: Missing: {', '.join(missing)}", 'fail')
+            messagebox.showerror("Error", f"Missing files:\n" + "\n".join(missing))
+            return
+        if self.modified:
+            if messagebox.askyesno("Save First?", "Save changes first?"):
+                self.save_assignments()
         try:
-            r = subprocess.run([sys.executable, 'encode_resources.py'], capture_output=True, text=True, cwd=os.getcwd())
-            if r.stdout:
-                for line in r.stdout.strip().split('\n'):
-                    self.log(line)
-            if r.returncode == 0:
-                self.log("Encoded successfully!")
+            result = subprocess.run([sys.executable, 'encode_resources.py'], capture_output=True, text=True, cwd=os.getcwd())
+            if result.stdout:
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        self.log(f"  {line}")
+            if result.returncode == 0:
+                self.log("Resources encoded successfully!", 'pass')
                 messagebox.showinfo("Success", "Resources encoded!")
             else:
-                messagebox.showerror("Error", "Encoding failed.")
+                self.log(f"Encoding failed", 'fail')
+                if result.stderr:
+                    self.log(result.stderr, 'fail')
+                messagebox.showerror("Error", "Encoding failed!")
         except Exception as e:
-            self.log(f"Error: {e}")
-            messagebox.showerror("Error", f"Failed: {e}")
+            self.log(f"Error: {e}", 'fail')
 
     def manage_extra_files(self):
         dlg = ExtraFilesDialog(self.root, self.extra_files, self.solution_files)
@@ -1404,10 +1754,9 @@ Notes:
         if dlg.result is not None:
             self.extra_files = dlg.result
             self.save_settings()
-            self.log(f"Extra files: {len(self.extra_files)}")
 
     def build_executable(self):
-        self.log("Starting build...")
+        self.log("Starting build...", 'info')
         if not os.path.exists('autograder-gui-app.py'):
             messagebox.showerror("Error", "autograder-gui-app.py not found!")
             return
@@ -1418,30 +1767,26 @@ Notes:
                     return
             else:
                 return
-        if not messagebox.askyesno("Build", "Build the executable?"):
+        if not messagebox.askyesno("Build", "Build executable?"):
             return
         self.create_build_spec()
-        self.log("Running PyInstaller...")
         try:
-            proc = subprocess.Popen(['pyinstaller', 'autograder_build.spec', '--clean'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            proc = subprocess.Popen(['pyinstaller', 'autograder_build.spec', '--clean'],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=os.getcwd())
             for line in iter(proc.stdout.readline, ''):
-                line = line.strip()
-                if line:
-                    self.log(line)
+                if line.strip():
+                    self.log(f"  {line.strip()}")
                 self.root.update_idletasks()
             proc.wait()
             if proc.returncode == 0:
-                self.log("Build complete!")
-                messagebox.showinfo("Done", "Built! Check dist/")
+                self.log("Build complete!", 'pass')
+                messagebox.showinfo("Success", "Built! Check 'dist' folder.")
             else:
-                self.log("Build failed!")
-                messagebox.showerror("Failed", "Build failed.")
+                self.log("Build failed!", 'fail')
         except FileNotFoundError:
-            self.log("PyInstaller not found.")
-            messagebox.showerror("Error", "Install PyInstaller: pip install pyinstaller")
+            messagebox.showerror("Error", "PyInstaller not found.")
         except Exception as e:
-            self.log(f"Error: {e}")
-            messagebox.showerror("Error", f"Build failed: {e}")
+            self.log(f"Error: {e}", 'fail')
 
     def create_build_spec(self):
         all_files = set(self.extra_files)
@@ -1451,34 +1796,31 @@ Notes:
         datas = []
         for f in all_files:
             if os.path.exists(f):
-                if os.path.isdir(f):
-                    datas.append(f"        ('{f}', '{f}'),")
-                else:
-                    d = os.path.dirname(f) or '.'
-                    datas.append(f"        ('{f}', '{d}'),")
-        datas_str = '\n'.join(datas) if datas else ''
-        spec = f"""# Auto-generated spec
-block_cipher = None
-a = Analysis(['autograder-gui-app.py'], pathex=[], binaries=[], datas=[
+                d = os.path.dirname(f) or '.'
+                datas.append(f"        ('{f}', '{d}'),")
+        datas_str = '\n'.join(datas)
+        spec = f"""block_cipher = None
+a = Analysis(['autograder-gui-app.py'], datas=[
 {datas_str}
-], hiddenimports=['autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg', 'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles', 'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums', 'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.scrolledtext', 'configparser', 'smtplib', 'email', 'email.mime.text', 'email.mime.multipart', 'email.mime.base', 'socket', 'getpass', 'base64', 'tempfile'], hookspath=[], runtime_hooks=[], excludes=['test', 'unittest', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'], cipher=block_cipher, noarchive=False)
+], hiddenimports=['autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
+'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg', 'reportlab',
+'tkinter', 'tkinter.ttk', 'configparser', 'smtplib', 'email'], cipher=block_cipher)
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-exe = EXE(pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [], name='AutoGrader', debug=False, strip=False, upx=True, runtime_tmpdir=None, console=False)
-app = BUNDLE(exe, name='AutoGrader.app', bundle_identifier='com.autograder.app')
+exe = EXE(pyz, a.scripts, a.binaries, a.zipfiles, a.datas, name='AutoGrader', console=False)
 """
         with open('autograder_build.spec', 'w') as f:
             f.write(spec)
-        self.log(f"Created spec with {len(all_files)} files")
+        self.log(f"Created spec with {len(all_files)} files", 'info')
 
     def prompt_string(self, title, prompt, initial=""):
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
-        dlg.geometry("400x120")
+        dlg.geometry("450x130")
         dlg.transient(self.root)
         dlg.grab_set()
         ttk.Label(dlg, text=prompt).pack(pady=10)
         var = tk.StringVar(value=initial)
-        ent = ttk.Entry(dlg, textvariable=var, width=50)
+        ent = ttk.Entry(dlg, textvariable=var, width=55)
         ent.pack(pady=5)
         ent.select_range(0, tk.END)
         ent.focus()
@@ -1494,10 +1836,6 @@ app = BUNDLE(exe, name='AutoGrader.app', bundle_identifier='com.autograder.app')
         bf.pack(pady=10)
         ttk.Button(bf, text="OK", command=ok, width=10).pack(side=tk.LEFT, padx=5)
         ttk.Button(bf, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
-        dlg.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - dlg.winfo_width()) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - dlg.winfo_height()) // 2
-        dlg.geometry(f"+{x}+{y}")
         self.root.wait_window(dlg)
         return result[0]
 
@@ -1507,7 +1845,7 @@ def main():
     app = AssignmentEditorGUI(root)
     def on_closing():
         if app.modified:
-            r = messagebox.askyesnocancel("Unsaved", "Save before closing?")
+            r = messagebox.askyesnocancel("Unsaved Changes", "Save changes before closing?")
             if r is True:
                 app.save_assignments()
                 app.save_settings()

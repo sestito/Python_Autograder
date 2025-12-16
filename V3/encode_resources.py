@@ -18,7 +18,7 @@ def encode_file(filepath):
     with open(filepath, 'rb') as f:
         encoded = base64.b64encode(f.read()).decode('utf-8')
     
-    print(f"✓ Encoded {filepath} ({len(encoded)} characters)")
+    print(f"âœ“ Encoded {filepath} ({len(encoded)} characters)")
     return encoded
 
 def main():
@@ -94,7 +94,7 @@ def cleanup_temp_file(filepath):
         f.write(output)
     
     print("="*60)
-    print("✓ Generated embedded_resources.py")
+    print("âœ“ Generated embedded_resources.py")
     print("\nEmbedded files:")
     print("  - config.ini")
     print("  - assignments.xlsx")
