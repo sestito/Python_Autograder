@@ -870,7 +870,7 @@ class ExtraFilesDialog(tk.Toplevel):
     def __init__(self, parent, extra_files, solution_files):
         super().__init__(parent)
         self.title("Extra Files for Build")
-        self.geometry("650x450")
+        self.geometry("700x500")
         self.transient(parent)
         self.grab_set()
         self.result = None
@@ -890,19 +890,38 @@ class ExtraFilesDialog(tk.Toplevel):
         main = ttk.Frame(self, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
         
-        sf = ttk.LabelFrame(main, text="Auto-detected Solution Files", padding="5")
-        sf.pack(fill=tk.X, pady=5)
-        sol_list = tk.Listbox(sf, height=4)
-        sol_list.pack(fill=tk.X)
+        # Info label
+        info_text = "Files listed below will be included in the executable build.\nSolution files are auto-detected from your tests AND the 'solutions' folder."
+        ttk.Label(main, text=info_text, foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        
+        sf = ttk.LabelFrame(main, text=f"Auto-detected Solution Files ({len(self.solution_files)} files)", padding="5")
+        sf.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Add scrollbar for solution files
+        sol_frame = ttk.Frame(sf)
+        sol_frame.pack(fill=tk.BOTH, expand=True)
+        sol_scroll = ttk.Scrollbar(sol_frame)
+        sol_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        sol_list = tk.Listbox(sol_frame, height=6, yscrollcommand=sol_scroll.set)
+        sol_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sol_scroll.config(command=sol_list.yview)
+        
         for f in sorted(self.solution_files):
             sol_list.insert(tk.END, f)
         if not self.solution_files:
-            sol_list.insert(tk.END, "(none detected)")
+            sol_list.insert(tk.END, "(none detected - add files to 'solutions' folder)")
         
-        ef = ttk.LabelFrame(main, text="Additional Files", padding="5")
+        ef = ttk.LabelFrame(main, text="Additional Files (manually added)", padding="5")
         ef.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.extra_lb = tk.Listbox(ef, height=8)
-        self.extra_lb.pack(fill=tk.BOTH, expand=True)
+        
+        extra_frame = ttk.Frame(ef)
+        extra_frame.pack(fill=tk.BOTH, expand=True)
+        extra_scroll = ttk.Scrollbar(extra_frame)
+        extra_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.extra_lb = tk.Listbox(extra_frame, height=6, yscrollcommand=extra_scroll.set)
+        self.extra_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        extra_scroll.config(command=self.extra_lb.yview)
+        
         for f in self.extra_files:
             self.extra_lb.insert(tk.END, f)
         
@@ -974,6 +993,7 @@ class AssignmentEditorGUI:
         self.solution_files = set()
         self.extra_files = []
         self.sample_file = ""
+        self.icon_file = ""
         self.modified = False
         self.load_settings()
         self.create_widgets()
@@ -986,13 +1006,18 @@ class AssignmentEditorGUI:
                     s = json.load(f)
                     self.extra_files = s.get('extra_files', [])
                     self.sample_file = s.get('sample_file', '')
+                    self.icon_file = s.get('icon_file', '')
             except:
                 pass
 
     def save_settings(self):
         try:
             with open(SETTINGS_FILE, 'w') as f:
-                json.dump({'extra_files': self.extra_files, 'sample_file': self.sample_file}, f)
+                json.dump({
+                    'extra_files': self.extra_files, 
+                    'sample_file': self.sample_file,
+                    'icon_file': self.icon_file
+                }, f)
         except:
             pass
 
@@ -1089,6 +1114,7 @@ class AssignmentEditorGUI:
         ttk.Button(bf, text="Encode Resources", command=self.encode_resources, width=17).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Launch AutoGrader", command=self.launch_autograder_gui, width=18).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Extra Files...", command=self.manage_extra_files, width=13).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Set Icon...", command=self.select_icon, width=10).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Build Executable", command=self.build_executable, width=16).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="?", command=self.show_build_help, width=3).pack(side=tk.LEFT, padx=2)
         
@@ -1128,15 +1154,26 @@ class AssignmentEditorGUI:
 === Building the Executable ===
 1. Save your assignments (if modified)
 2. Click "Encode Resources" to embed the latest files
-3. Click "Extra Files..." to add any additional files needed
-4. Click "Build Executable" to create the standalone application
+3. Click "Extra Files..." to review/add additional files
+4. Click "Set Icon..." to choose a custom application icon (optional)
+5. Click "Build Executable" to create the standalone application
+
+=== Solution Files ===
+Solution files are automatically included from:
+- Any solution_file referenced in your tests
+- ALL files in the 'solutions' folder (and subfolders)
+This ensures all solution files are bundled with the executable.
+
+=== Custom Icon ===
+- Windows: Use .ico files
+- Mac: Use .icns files
+- The icon setting is saved and remembered
 
 === Required Files ===
 - config.ini, assignments.xlsx, autograder.py
 - autograder-gui-app.py, encode_resources.py
 
 === Notes ===
-- Solution files are automatically included
 - Output will be in the 'dist' folder
 - Requires: pip install pyinstaller"""
         HelpDialog(self.root, "Build Process Help", txt)
@@ -1749,7 +1786,9 @@ class AssignmentEditorGUI:
             self.log(f"Error: {e}", 'fail')
 
     def manage_extra_files(self):
-        dlg = ExtraFilesDialog(self.root, self.extra_files, self.solution_files)
+        # Get all solution files for display
+        all_solution_files = self.get_all_solution_files()
+        dlg = ExtraFilesDialog(self.root, self.extra_files, all_solution_files)
         self.root.wait_window(dlg)
         if dlg.result is not None:
             self.extra_files = dlg.result
@@ -1788,29 +1827,220 @@ class AssignmentEditorGUI:
         except Exception as e:
             self.log(f"Error: {e}", 'fail')
 
-    def create_build_spec(self):
-        all_files = set(self.extra_files)
+    def select_icon(self):
+        """Select an icon file for the executable."""
+        filetypes = [("Icon Files", "*.ico"), ("All Files", "*.*")]
+        if sys.platform == 'darwin':
+            filetypes = [("Icon Files", "*.icns"), ("Icon Files", "*.ico"), ("All Files", "*.*")]
+        
+        fn = filedialog.askopenfilename(
+            title="Select Application Icon",
+            filetypes=filetypes
+        )
+        if fn:
+            self.icon_file = make_relative_path(fn)
+            self.save_settings()
+            self.log(f"Icon set: {self.icon_file}", 'info')
+            messagebox.showinfo("Icon Set", f"Icon will be used for build:\n{os.path.basename(self.icon_file)}")
+
+    def get_all_solution_files(self):
+        """Get all files from solutions folder and any solution files referenced in tests."""
+        all_solution_files = set()
+        
+        # Add all files referenced in tests
         for sf in self.solution_files:
             if os.path.exists(sf):
-                all_files.add(sf)
+                all_solution_files.add(sf)
+        
+        # Also add entire solutions folder if it exists
+        solutions_folder = 'solutions'
+        if os.path.exists(solutions_folder) and os.path.isdir(solutions_folder):
+            for root, dirs, files in os.walk(solutions_folder):
+                for file in files:
+                    filepath = os.path.join(root, file).replace('\\', '/')
+                    all_solution_files.add(filepath)
+        
+        return all_solution_files
+
+    def create_build_spec(self):
+        # Collect all files to include
+        all_files = set(self.extra_files)
+        
+        # Add all solution files (from tests AND solutions folder)
+        solution_files = self.get_all_solution_files()
+        all_files.update(solution_files)
+        
+        # Build datas list - preserve directory structure
         datas = []
+        folders_added = set()
+        
         for f in all_files:
+            f = f.replace('\\', '/')  # Normalize path
             if os.path.exists(f):
-                d = os.path.dirname(f) or '.'
-                datas.append(f"        ('{f}', '{d}'),")
-        datas_str = '\n'.join(datas)
-        spec = f"""block_cipher = None
-a = Analysis(['autograder-gui-app.py'], datas=[
+                if os.path.isdir(f):
+                    # For directories, include the whole directory
+                    datas.append(f"        ('{f}', '{f}'),")
+                    folders_added.add(f)
+                else:
+                    # For files, preserve the directory structure
+                    dirname = os.path.dirname(f)
+                    if dirname:
+                        datas.append(f"        ('{f}', '{dirname}'),")
+                    else:
+                        datas.append(f"        ('{f}', '.'),")
+        
+        # Also add the solutions folder as a whole if it exists and wasn't already added
+        if os.path.exists('solutions') and 'solutions' not in folders_added:
+            datas.append("        ('solutions', 'solutions'),")
+        
+        datas_str = '\n'.join(sorted(set(datas)))  # Remove duplicates
+        
+        # Handle icon
+        icon_line = ""
+        if self.icon_file and os.path.exists(self.icon_file):
+            icon_path = self.icon_file.replace('\\', '/')
+            icon_line = f", icon='{icon_path}'"
+            self.log(f"Including icon: {icon_path}", 'info')
+        
+        # Detect platform for appropriate build mode
+        is_mac = sys.platform == 'darwin'
+        
+        if is_mac:
+            # macOS: Use onedir mode for .app bundle (required for PyInstaller 7.0+)
+            spec = f"""# -*- mode: python ; coding: utf-8 -*-
+# Auto-generated by Assignment Editor (macOS onedir mode)
+
+block_cipher = None
+
+a = Analysis(
+    ['autograder-gui-app.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
 {datas_str}
-], hiddenimports=['autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
-'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg', 'reportlab',
-'tkinter', 'tkinter.ttk', 'configparser', 'smtplib', 'email'], cipher=block_cipher)
+    ],
+    hiddenimports=[
+        'autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
+        'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg',
+        'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles',
+        'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums',
+        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
+        'tkinter.scrolledtext', 'configparser', 'smtplib', 'email',
+        'email.mime.text', 'email.mime.multipart', 'email.mime.base',
+        'socket', 'getpass', 'base64', 'tempfile',
+    ],
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes=['test', 'unittest', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
+    cipher=block_cipher,
+    noarchive=False,
+)
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-exe = EXE(pyz, a.scripts, a.binaries, a.zipfiles, a.datas, name='AutoGrader', console=False)
+
+# macOS: Use onedir mode (not onefile) for .app bundle
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='AutoGrader',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None{icon_line},
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='AutoGrader',
+)
+
+app = BUNDLE(
+    coll,
+    name='AutoGrader.app',
+    bundle_identifier='com.autograder.app'{icon_line},
+)
+"""
+        else:
+            # Windows/Linux: Use onefile mode for single executable
+            spec = f"""# -*- mode: python ; coding: utf-8 -*-
+# Auto-generated by Assignment Editor (Windows/Linux onefile mode)
+
+block_cipher = None
+
+a = Analysis(
+    ['autograder-gui-app.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+{datas_str}
+    ],
+    hiddenimports=[
+        'autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
+        'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg',
+        'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles',
+        'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums',
+        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
+        'tkinter.scrolledtext', 'configparser', 'smtplib', 'email',
+        'email.mime.text', 'email.mime.multipart', 'email.mime.base',
+        'socket', 'getpass', 'base64', 'tempfile',
+    ],
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes=['test', 'unittest', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='AutoGrader',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None{icon_line},
+)
 """
         with open('autograder_build.spec', 'w') as f:
             f.write(spec)
-        self.log(f"Created spec with {len(all_files)} files", 'info')
+        
+        self.log(f"Created build spec:", 'info')
+        self.log(f"  - {len(all_files)} data files/folders", 'info')
+        self.log(f"  - {len(solution_files)} solution files", 'info')
+        if self.icon_file:
+            self.log(f"  - Icon: {self.icon_file}", 'info')
 
     def prompt_string(self, title, prompt, initial=""):
         dlg = tk.Toplevel(self.root)

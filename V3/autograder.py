@@ -8,6 +8,38 @@ import matplotlib.pyplot as plt
 from typing import Any, List, Dict, Optional, Callable, Union
 
 
+def get_resource_path(relative_path):
+    """Get the absolute path to a resource, works for dev and PyInstaller bundle."""
+    # Normalize path separators
+    relative_path = relative_path.replace('\\', '/')
+    
+    # Check multiple locations in order:
+    # 1. Current working directory (for development)
+    if os.path.exists(relative_path):
+        return relative_path
+    
+    # 2. PyInstaller bundle directory (sys._MEIPASS)
+    if hasattr(sys, '_MEIPASS'):
+        bundled_path = os.path.join(sys._MEIPASS, relative_path)
+        if os.path.exists(bundled_path):
+            return bundled_path
+    
+    # 3. Directory where the executable/script is located
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        base_path = os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    exe_relative_path = os.path.join(base_path, relative_path)
+    if os.path.exists(exe_relative_path):
+        return exe_relative_path
+    
+    # 4. Return original path if nothing found (will fail with appropriate error)
+    return relative_path
+
+
 class TimeoutException(Exception):
     """Raised when code execution times out."""
     pass
@@ -469,13 +501,15 @@ class AutoGrader:
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
-        if not os.path.exists(solution_file):
+        # Use get_resource_path to find the solution file in bundled executables
+        solution_path = get_resource_path(solution_file)
+        if not os.path.exists(solution_path):
             self._log_result(False, f"Solution file not found: {solution_file}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
         try:
-            with open(solution_file, 'r', encoding='utf-8') as f:
+            with open(solution_path, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
             # Close figures before running solution to avoid contamination
@@ -789,13 +823,15 @@ class AutoGrader:
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
-        if not os.path.exists(solution_file):
+        # Use get_resource_path to find the solution file in bundled executables
+        solution_path = get_resource_path(solution_file)
+        if not os.path.exists(solution_path):
             self._log_result(False, f"Solution file not found: {solution_file}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
         try:
-            with open(solution_file, 'r', encoding='utf-8') as f:
+            with open(solution_path, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
             # Close figures before running solution to avoid contamination
@@ -1241,7 +1277,9 @@ class AutoGrader:
         student_marker = student_line.get_marker()
         student_markersize = student_line.get_markersize()
         
-        if not os.path.exists(solution_file):
+        # Use get_resource_path to find the solution file in bundled executables
+        solution_path = get_resource_path(solution_file)
+        if not os.path.exists(solution_path):
             self._log_result(False, f"Solution file not found", custom_fail_feedback=custom_fail_feedback)
             return False
         
@@ -1249,7 +1287,7 @@ class AutoGrader:
             # Now close all figures before running solution
             plt.close('all')
             
-            with open(solution_file, 'r', encoding='utf-8') as f:
+            with open(solution_path, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
             safe_builtins = self._get_safe_builtins()
