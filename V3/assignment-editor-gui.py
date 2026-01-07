@@ -11,9 +11,160 @@ import os
 import sys
 import subprocess
 import json
+import shutil
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import configparser
+
+# List of bundled resource files that ship with the executable
+BUNDLED_FILES = ['autograder.py', 'autograder-gui-app.py']
+
+# Temporary directory for extracted files (cleaned up on exit)
+_temp_extract_dir = None
+
+def get_temp_extract_dir():
+    """
+    Get or create a temporary directory for extracting bundled files.
+    This directory is cleaned up when the application exits.
+    """
+    global _temp_extract_dir
+    if _temp_extract_dir is None or not os.path.exists(_temp_extract_dir):
+        import tempfile
+        import atexit
+        _temp_extract_dir = tempfile.mkdtemp(prefix='autograder_editor_')
+        atexit.register(cleanup_temp_extract_dir)
+    return _temp_extract_dir
+
+def cleanup_temp_extract_dir():
+    """Clean up the temporary extraction directory."""
+    global _temp_extract_dir
+    if _temp_extract_dir and os.path.exists(_temp_extract_dir):
+        try:
+            shutil.rmtree(_temp_extract_dir)
+        except Exception as e:
+            print(f"Warning: Could not clean up temp directory: {e}")
+
+def get_subprocess_flags():
+    """Get platform-specific subprocess flags to hide console windows."""
+    if sys.platform == 'win32':
+        # On Windows, prevent console window from appearing
+        return {'creationflags': subprocess.CREATE_NO_WINDOW}
+    return {}
+
+def get_python_executable():
+    """
+    Get the path to the Python interpreter.
+    When running as a PyInstaller bundle, sys.executable points to the bundled exe,
+    so we need to find the actual Python interpreter on the system.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable - need to find Python
+        import shutil
+        
+        # Try common Python executable names
+        for python_name in ['python3', 'python', 'python.exe']:
+            python_path = shutil.which(python_name)
+            if python_path:
+                return python_path
+        
+        # Fallback: try some common locations
+        common_paths = [
+            '/usr/bin/python3',
+            '/usr/bin/python',
+            '/usr/local/bin/python3',
+            '/usr/local/bin/python',
+        ]
+        if sys.platform == 'win32':
+            common_paths = [
+                os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
+                os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
+                os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python310\python.exe'),
+                os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python39\python.exe'),
+                r'C:\Python312\python.exe',
+                r'C:\Python311\python.exe',
+                r'C:\Python310\python.exe',
+                r'C:\Python39\python.exe',
+            ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
+        
+        return None  # Python not found
+    else:
+        # Running as script - use the current interpreter
+        return sys.executable
+
+def get_bundled_resource_path(filename):
+    """
+    Get the path to a bundled resource file.
+    When running as a PyInstaller bundle, files are in sys._MEIPASS.
+    When running as a script, files are in the script directory.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        bundle_dir = sys._MEIPASS
+    else:
+        # Running as script
+        bundle_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.join(bundle_dir, 'bundled_files', filename)
+
+def extract_bundled_file(filename, target_dir=None):
+    """
+    Extract a bundled file to the target directory.
+    When running as frozen executable and no target_dir specified, uses temp directory.
+    Returns the path to the extracted file, or None if extraction failed.
+    """
+    if target_dir is None:
+        if getattr(sys, 'frozen', False):
+            # Use temp directory when running as executable
+            target_dir = get_temp_extract_dir()
+        else:
+            # Use current directory when running as script
+            target_dir = os.getcwd()
+    
+    target_path = os.path.join(target_dir, filename)
+    
+    # If file already exists in target, return it
+    if os.path.exists(target_path):
+        return target_path
+    
+    # Get path to bundled file
+    bundled_path = get_bundled_resource_path(filename)
+    
+    if os.path.exists(bundled_path):
+        try:
+            shutil.copy2(bundled_path, target_path)
+            return target_path
+        except Exception as e:
+            print(f"Error extracting {filename}: {e}")
+            return None
+    
+    return None
+
+def ensure_bundled_files_available(filenames, target_dir=None):
+    """
+    Ensure that the specified bundled files are available in the target directory.
+    Returns a tuple of (success, missing_files).
+    """
+    if target_dir is None:
+        target_dir = os.getcwd()
+    
+    missing = []
+    for filename in filenames:
+        target_path = os.path.join(target_dir, filename)
+        
+        # Already exists in target directory
+        if os.path.exists(target_path):
+            continue
+        
+        # Try to extract from bundle
+        extracted = extract_bundled_file(filename, target_dir)
+        if not extracted:
+            missing.append(filename)
+    
+    return (len(missing) == 0, missing)
 
 SETTINGS_FILE = 'assignment_editor_settings.json'
 
@@ -1170,8 +1321,10 @@ This ensures all solution files are bundled with the executable.
 - The icon setting is saved and remembered
 
 === Required Files ===
-- config.ini, assignments.xlsx, autograder.py
-- autograder-gui-app.py, encode_resources.py
+- config.ini, assignments.xlsx (created by this editor)
+- autograder.py, autograder-gui-app.py
+  (bundled with editor - extracted temporarily when needed)
+- encode_resources functionality is built into the editor
 
 === Notes ===
 - Output will be in the 'dist' folder
@@ -1484,9 +1637,48 @@ This ensures all solution files are bundled with the executable.
         self.log("=" * 60, 'header')
         
         try:
+            # IMPORTANT: Import matplotlib and numpy FIRST, before importing autograder
+            # This ensures they're in sys.modules when autograder.py tries to import them
+            self.log("Loading required libraries...", 'info')
+            try:
+                import matplotlib
+                matplotlib.use('Agg')  # Non-interactive backend
+                import matplotlib.pyplot as plt
+                plt.close('all')
+                import numpy as np
+                self.log("  ✓ Libraries loaded successfully", 'pass')
+            except ImportError as e:
+                self.log(f"ERROR: Required library not available: {e}", 'fail')
+                self.log("Make sure matplotlib and numpy are installed.", 'fail')
+                if getattr(sys, 'frozen', False):
+                    self.log("Note: When running as executable, libraries must be bundled.", 'info')
+                    self.log("Rebuild with: pyinstaller --clean assignment-editor.spec", 'info')
+                else:
+                    self.log("Install with: pip install matplotlib numpy", 'info')
+                return
+            
+            # Extract autograder.py to temp directory and add to path
+            temp_dir = get_temp_extract_dir()
+            autograder_path = extract_bundled_file('autograder.py', temp_dir)
+            
+            if not autograder_path:
+                # Fallback: try current directory
+                if not os.path.exists('autograder.py'):
+                    self.log("ERROR: autograder.py not found!", 'fail')
+                    return
+                temp_dir = os.getcwd()
+            
+            # Add temp directory to path for import
+            if temp_dir not in sys.path:
+                sys.path.insert(0, temp_dir)
+            
+            # Force reimport in case it was cached
+            if 'autograder' in sys.modules:
+                del sys.modules['autograder']
+            
+            self.log("Loading autograder module...", 'info')
             from autograder import AutoGrader
-            import matplotlib.pyplot as plt
-            plt.close('all')
+            self.log("  ✓ AutoGrader loaded successfully", 'pass')
             
             grader = AutoGrader(self.sample_file)
             self.log("\n[1] EXECUTING STUDENT SCRIPT...", 'header')
@@ -1522,7 +1714,8 @@ This ensures all solution files are bundled with the executable.
                 self.log(f"\n  {test_label}")
                 
                 try:
-                    result = self.run_single_test(grader, t, tt)
+                    # Pass current working directory as base_dir for resolving solution file paths
+                    result = self.run_single_test(grader, t, tt, base_dir=os.getcwd())
                     if result:
                         self.log(f"    >>> PASSED", 'pass')
                         passed_count += 1
@@ -1546,13 +1739,23 @@ This ensures all solution files are bundled with the executable.
                 
         except ImportError as e:
             self.log(f"Import error: {e}", 'fail')
-            self.log("Make sure autograder.py is in the current directory", 'fail')
+            self.log("Could not load autograder module.", 'fail')
         except Exception as e:
             self.log(f"Unexpected error: {e}", 'fail')
             import traceback
             self.log(traceback.format_exc())
 
-    def run_single_test(self, grader, t, tt):
+    def run_single_test(self, grader, t, tt, base_dir=None):
+        """Run a single test. base_dir is used to resolve relative paths for solution files."""
+        if base_dir is None:
+            base_dir = os.getcwd()
+        
+        def resolve_path(path):
+            """Resolve a relative path against base_dir."""
+            if path and not os.path.isabs(path):
+                return os.path.join(base_dir, path)
+            return path
+        
         if tt == 'variable_value':
             var = t['variable_name']
             exp = eval(str(t['expected_value']))
@@ -1586,7 +1789,7 @@ This ensures all solution files are bundled with the executable.
             self.log(f"    Checking: '{func}' is NOT called")
             return grader.check_function_not_called(func, mp)
         elif tt == 'compare_solution':
-            sol = t['solution_file']
+            sol = resolve_path(t['solution_file'])
             vs = [v.strip() for v in str(t['variables_to_compare']).split(',')]
             tol = float(t.get('tolerance', 1e-6))
             self.log(f"    Solution: {sol}")
@@ -1715,7 +1918,7 @@ This ensures all solution files are bundled with the executable.
             self.log(f"    Checking: exactly {exact} lines")
             return grader.check_exact_lines(exact)
         elif tt == 'compare_plot_solution':
-            sol = t['solution_file']
+            sol = resolve_path(t['solution_file'])
             line_idx = int(t.get('line_index', 0))
             tol = float(t.get('tolerance', 1e-6))
             self.log(f"    Comparing plot with solution: {sol}")
@@ -1734,56 +1937,241 @@ This ensures all solution files are bundled with the executable.
 
     def launch_autograder_gui(self):
         self.log("Launching AutoGrader GUI...", 'info')
-        gui_file = 'autograder-gui-app.py'
-        if not os.path.exists(gui_file):
-            self.log(f"ERROR: {gui_file} not found!", 'fail')
-            messagebox.showerror("Error", f"{gui_file} not found!")
+        
+        # Get Python interpreter path
+        python_exe = get_python_executable()
+        if not python_exe:
+            self.log("ERROR: Python interpreter not found!", 'fail')
+            messagebox.showerror("Error", "Python interpreter not found on system.\n\n"
+                               "Please ensure Python is installed and in your PATH.")
             return
+        
+        self.log(f"Found Python: {python_exe}", 'info')
+        
+        # Check if required libraries are available in system Python
+        self.log("Checking required libraries...", 'info')
+        check_script = """
+import sys
+missing = []
+for lib in ['pandas', 'numpy', 'matplotlib', 'openpyxl']:
+    try:
+        __import__(lib)
+    except ImportError:
+        missing.append(lib)
+if missing:
+    print("MISSING:" + ",".join(missing))
+    sys.exit(1)
+else:
+    print("OK")
+    sys.exit(0)
+"""
+        try:
+            result = subprocess.run(
+                [python_exe, '-c', check_script],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                **get_subprocess_flags()
+            )
+            if result.returncode != 0:
+                output = result.stdout.strip()
+                if output.startswith("MISSING:"):
+                    missing_libs = output.replace("MISSING:", "")
+                    self.log(f"ERROR: System Python missing libraries: {missing_libs}", 'fail')
+                    messagebox.showerror("Missing Libraries", 
+                        f"Your system Python is missing required libraries:\n\n{missing_libs}\n\n"
+                        f"Install them with:\npip install {missing_libs.replace(',', ' ')}")
+                    return
+                else:
+                    self.log(f"Library check failed: {result.stderr}", 'fail')
+        except subprocess.TimeoutExpired:
+            self.log("WARNING: Library check timed out, proceeding anyway...", 'info')
+        except Exception as e:
+            self.log(f"WARNING: Could not check libraries: {e}", 'info')
+        
+        # Check for embedded_resources.py first
         if not os.path.exists('embedded_resources.py'):
             self.log("WARNING: embedded_resources.py not found", 'fail')
-            if not messagebox.askyesno("Warning", "embedded_resources.py not found. Launch anyway?"):
+            if not messagebox.askyesno("Warning", "embedded_resources.py not found.\n\n"
+                                      "The AutoGrader needs this file to load assignments.\n\n"
+                                      "Launch anyway?"):
                 return
+        
+        # Get temp directory for extracted files
+        temp_dir = get_temp_extract_dir()
+        self.log(f"Using temp directory: {temp_dir}", 'info')
+        
+        # Extract required files to temp directory
+        required_files = ['autograder-gui-app.py', 'autograder.py']
+        for filename in required_files:
+            extracted = extract_bundled_file(filename, temp_dir)
+            if not extracted:
+                # Try from current directory as fallback
+                src = os.path.join(os.getcwd(), filename)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(temp_dir, filename))
+                    self.log(f"Copied {filename} from current directory", 'info')
+                else:
+                    self.log(f"ERROR: {filename} not found!", 'fail')
+                    messagebox.showerror("Error", f"{filename} not found!")
+                    return
+            else:
+                self.log(f"Extracted {filename}", 'info')
+        
+        # Copy embedded_resources.py to temp directory if it exists
+        if os.path.exists('embedded_resources.py'):
+            shutil.copy2('embedded_resources.py', os.path.join(temp_dir, 'embedded_resources.py'))
+            self.log("Copied embedded_resources.py", 'info')
+        
+        # Copy solution files to temp directory
+        solution_files_copied = 0
+        for sol_file in self.solution_files:
+            if sol_file and os.path.exists(sol_file):
+                # Create directory structure if needed
+                dest_path = os.path.join(temp_dir, sol_file)
+                dest_dir = os.path.dirname(dest_path)
+                if dest_dir and not os.path.exists(dest_dir):
+                    os.makedirs(dest_dir, exist_ok=True)
+                try:
+                    shutil.copy2(sol_file, dest_path)
+                    solution_files_copied += 1
+                except Exception as e:
+                    self.log(f"Warning: Could not copy {sol_file}: {e}", 'info')
+        
+        # Also copy any solutions/ directory if it exists
+        if os.path.exists('solutions') and os.path.isdir('solutions'):
+            dest_solutions = os.path.join(temp_dir, 'solutions')
+            if not os.path.exists(dest_solutions):
+                try:
+                    shutil.copytree('solutions', dest_solutions)
+                    self.log("Copied solutions/ directory", 'info')
+                except Exception as e:
+                    self.log(f"Warning: Could not copy solutions directory: {e}", 'info')
+        elif solution_files_copied > 0:
+            self.log(f"Copied {solution_files_copied} solution file(s)", 'info')
+        
+        gui_file = os.path.join(temp_dir, 'autograder-gui-app.py')
+        
         try:
-            process = subprocess.Popen([sys.executable, gui_file], cwd=os.getcwd())
-            self.log(f"Launched (PID: {process.pid})", 'pass')
+            self.log(f"Launching: {python_exe} {gui_file}", 'info')
+            process = subprocess.Popen(
+                [python_exe, gui_file], 
+                cwd=temp_dir,
+                **get_subprocess_flags()
+            )
+            self.log(f"Launched successfully (PID: {process.pid})", 'pass')
+            self.log("Note: The AutoGrader window should open shortly.", 'info')
         except Exception as e:
-            self.log(f"Error: {e}", 'fail')
+            self.log(f"Error launching: {e}", 'fail')
+            messagebox.showerror("Error", f"Failed to launch AutoGrader:\n\n{str(e)}")
 
     def edit_config(self):
         ConfigEditorDialog(self.root)
 
     def encode_resources(self):
+        """Encode config.ini and assignments.xlsx directly into embedded_resources.py"""
         self.log("Encoding resources...", 'info')
-        missing = []
+        
+        # Create default config.ini if it doesn't exist
         if not os.path.exists('config.ini'):
-            missing.append('config.ini')
+            self.log("Creating default config.ini...", 'info')
+            self.create_default_config()
+        
+        # Check for assignments.xlsx
         if not os.path.exists('assignments.xlsx'):
-            missing.append('assignments.xlsx')
-        if not os.path.exists('encode_resources.py'):
-            missing.append('encode_resources.py')
-        if missing:
-            self.log(f"ERROR: Missing: {', '.join(missing)}", 'fail')
-            messagebox.showerror("Error", f"Missing files:\n" + "\n".join(missing))
-            return
+            if self.modified or self.assignments:
+                if messagebox.askyesno("Save Assignments", "assignments.xlsx not found.\n\nSave current assignments?"):
+                    self.save_assignments()
+            if not os.path.exists('assignments.xlsx'):
+                self.log("ERROR: assignments.xlsx not found", 'fail')
+                messagebox.showerror("Error", "assignments.xlsx not found.\n\nPlease create and save assignments first.")
+                return
+        
+        # Save changes first if needed
         if self.modified:
-            if messagebox.askyesno("Save First?", "Save changes first?"):
+            if messagebox.askyesno("Save First?", "Save changes before encoding?"):
                 self.save_assignments()
+        
         try:
-            result = subprocess.run([sys.executable, 'encode_resources.py'], capture_output=True, text=True, cwd=os.getcwd())
-            if result.stdout:
-                for line in result.stdout.strip().split('\n'):
-                    if line.strip():
-                        self.log(f"  {line}")
-            if result.returncode == 0:
-                self.log("Resources encoded successfully!", 'pass')
-                messagebox.showinfo("Success", "Resources encoded!")
-            else:
-                self.log(f"Encoding failed", 'fail')
-                if result.stderr:
-                    self.log(result.stderr, 'fail')
-                messagebox.showerror("Error", "Encoding failed!")
+            import base64
+            
+            # Encode config.ini
+            with open('config.ini', 'rb') as f:
+                config_data = base64.b64encode(f.read()).decode('utf-8')
+            self.log(f"  ✓ Encoded config.ini ({len(config_data)} characters)")
+            
+            # Encode assignments.xlsx
+            with open('assignments.xlsx', 'rb') as f:
+                excel_data = base64.b64encode(f.read()).decode('utf-8')
+            self.log(f"  ✓ Encoded assignments.xlsx ({len(excel_data)} characters)")
+            
+            # Generate the embedded_resources.py module
+            output = f'''"""
+Auto-generated embedded resources.
+DO NOT EDIT MANUALLY!
+Generated by Assignment Editor GUI
+
+This module contains config.ini and assignments.xlsx embedded as base64 strings.
+Files are decoded at runtime and never extracted to disk in a visible location.
+"""
+
+import base64
+import io
+import tempfile
+import os
+
+# Embedded config.ini (base64 encoded)
+CONFIG_DATA = """{config_data}"""
+
+# Embedded assignments.xlsx (base64 encoded)
+EXCEL_DATA = """{excel_data}"""
+
+def get_config_string():
+    """Return decoded config.ini content as string"""
+    return base64.b64decode(CONFIG_DATA).decode('utf-8')
+
+def get_excel_bytes():
+    """Return decoded assignments.xlsx as bytes"""
+    return base64.b64decode(EXCEL_DATA)
+
+def get_excel_file():
+    """Return path to temporary Excel file"""
+    data = get_excel_bytes()
+    
+    # Create temporary file that will be cleaned up
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx', mode='wb')
+    temp_file.write(data)
+    temp_file.close()
+    
+    return temp_file.name
+
+def get_config_parser():
+    """Return ConfigParser object with embedded config"""
+    import configparser
+    config = configparser.ConfigParser()
+    config.read_string(get_config_string())
+    return config
+
+def cleanup_temp_file(filepath):
+    """Delete temporary file"""
+    try:
+        if filepath and os.path.exists(filepath):
+            os.unlink(filepath)
+    except:
+        pass
+'''
+            
+            # Write the embedded_resources.py file
+            with open('embedded_resources.py', 'w', encoding='utf-8') as f:
+                f.write(output)
+            
+            self.log("  ✓ Generated embedded_resources.py", 'pass')
+            self.log("Resources encoded successfully!", 'pass')
+            messagebox.showinfo("Success", "Resources encoded!\n\nGenerated: embedded_resources.py")
+            
         except Exception as e:
-            self.log(f"Error: {e}", 'fail')
+            self.log(f"Error encoding resources: {e}", 'fail')
+            messagebox.showerror("Error", f"Encoding failed:\n{str(e)}")
 
     def manage_extra_files(self):
         # Get all solution files for display
@@ -1794,38 +2182,236 @@ This ensures all solution files are bundled with the executable.
             self.extra_files = dlg.result
             self.save_settings()
 
+    def create_default_config(self):
+        """Create a default config.ini file if it doesn't exist."""
+        if os.path.exists('config.ini'):
+            return True
+        
+        default_config = """[email]
+smtp_server = smtp.gmail.com
+smtp_port = 587
+sender_email = your_email@gmail.com
+sender_password = your_app_password
+instructor_email = instructor@university.edu
+
+[settings]
+# Set to true to show email error messages, false to hide them
+debug = false
+"""
+        try:
+            with open('config.ini', 'w', encoding='utf-8') as f:
+                f.write(default_config)
+            self.log("Created default config.ini", 'info')
+            return True
+        except Exception as e:
+            self.log(f"Error creating config.ini: {e}", 'fail')
+            return False
+
     def build_executable(self):
-        self.log("Starting build...", 'info')
-        if not os.path.exists('autograder-gui-app.py'):
-            messagebox.showerror("Error", "autograder-gui-app.py not found!")
+        """Start the build process."""
+        self.log("Preparing build...", 'info')
+        
+        # Track files we extract so we can clean them up later
+        extracted_files = []
+        
+        # Extract required files from bundle to current directory (temporary)
+        required_files = ['autograder-gui-app.py', 'autograder.py']
+        for filename in required_files:
+            if not os.path.exists(filename):
+                self.log(f"Extracting {filename} from bundle...", 'info')
+                # Extract directly to current directory for PyInstaller
+                extracted = extract_bundled_file(filename, os.getcwd())
+                if extracted:
+                    extracted_files.append(filename)
+        
+        # Check if required files exist
+        missing = []
+        for filename in required_files:
+            if not os.path.exists(filename):
+                missing.append(filename)
+        
+        if missing:
+            # Clean up any files we extracted before returning
+            for f in extracted_files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+            messagebox.showerror("Error", f"Missing required files:\n" + "\n".join(missing))
             return
+        
+        # Create default config.ini if it doesn't exist
+        if not os.path.exists('config.ini'):
+            self.log("Creating default config.ini...", 'info')
+            if not self.create_default_config():
+                for f in extracted_files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+                return
+        
+        # Check for assignments.xlsx
+        if not os.path.exists('assignments.xlsx'):
+            if self.modified or self.assignments:
+                if messagebox.askyesno("Save Assignments", "Save assignments.xlsx first?"):
+                    self.save_assignments()
+            if not os.path.exists('assignments.xlsx'):
+                messagebox.showerror("Error", "assignments.xlsx not found.\n\nPlease create and save assignments first.")
+                for f in extracted_files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+                return
+        
+        # Check for embedded_resources.py
         if not os.path.exists('embedded_resources.py'):
-            if messagebox.askyesno("Missing", "Encode resources now?"):
+            if messagebox.askyesno("Missing", "embedded_resources.py not found.\n\nEncode resources now?"):
                 self.encode_resources()
                 if not os.path.exists('embedded_resources.py'):
+                    # Clean up extracted files
+                    for f in extracted_files:
+                        try:
+                            os.remove(f)
+                        except:
+                            pass
                     return
             else:
+                # Clean up extracted files
+                for f in extracted_files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
                 return
-        if not messagebox.askyesno("Build", "Build executable?"):
+        
+        if not messagebox.askyesno("Build", "Build executable?\n\nThis may take a few minutes."):
+            # Clean up extracted files
+            for f in extracted_files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
             return
+        
+        # Create the spec file
         self.create_build_spec()
+        
+        # Start build in background thread
+        self._start_build_thread(extracted_files)
+    
+    def _start_build_thread(self, extracted_files):
+        """Run PyInstaller in a background thread to prevent UI freezing."""
+        import threading
+        
+        # Disable build button during build
+        self._set_build_buttons_state('disabled')
+        
+        # Create progress indicator
+        self.log("\n" + "=" * 50, 'header')
+        self.log("BUILD IN PROGRESS - Please wait...", 'header')
+        self.log("=" * 50, 'header')
+        
+        def build_thread():
+            try:
+                # Get platform-specific flags to hide console window
+                popen_kwargs = {
+                    'stdout': subprocess.PIPE,
+                    'stderr': subprocess.STDOUT,
+                    'text': True,
+                    'cwd': os.getcwd(),
+                    'bufsize': 1,  # Line buffered
+                    **get_subprocess_flags()  # Add Windows-specific flags
+                }
+                
+                proc = subprocess.Popen(
+                    ['pyinstaller', 'autograder_build.spec', '--clean'],
+                    **popen_kwargs
+                )
+                
+                # Read output line by line
+                for line in iter(proc.stdout.readline, ''):
+                    if line.strip():
+                        # Schedule log update on main thread
+                        self.root.after(0, lambda l=line.strip(): self.log(f"  {l}"))
+                
+                proc.wait()
+                
+                # Schedule completion on main thread
+                self.root.after(0, lambda: self._build_complete(proc.returncode, extracted_files))
+                
+            except FileNotFoundError:
+                self.root.after(0, lambda: self._build_error("PyInstaller not found.\n\nInstall with: pip install pyinstaller", extracted_files))
+            except Exception as e:
+                self.root.after(0, lambda: self._build_error(str(e), extracted_files))
+        
+        # Start the thread
+        thread = threading.Thread(target=build_thread, daemon=True)
+        thread.start()
+    
+    def _build_complete(self, return_code, extracted_files):
+        """Called when build completes (on main thread)."""
+        # Re-enable build buttons
+        self._set_build_buttons_state('normal')
+        
+        # Clean up extracted files
+        for f in extracted_files:
+            try:
+                os.remove(f)
+                self.log(f"Cleaned up: {f}", 'info')
+            except Exception as e:
+                self.log(f"Could not remove {f}: {e}", 'info')
+        
+        if return_code == 0:
+            self.log("\n" + "=" * 50, 'header')
+            self.log("BUILD COMPLETE!", 'pass')
+            self.log("=" * 50, 'header')
+            self.log("Executable is in the 'dist' folder.", 'info')
+            messagebox.showinfo("Success", "Build complete!\n\nCheck the 'dist' folder for your executable.")
+        else:
+            self.log("\n" + "=" * 50, 'header')
+            self.log("BUILD FAILED!", 'fail')
+            self.log("=" * 50, 'header')
+            self.log("Check the log above for errors.", 'info')
+            messagebox.showerror("Build Failed", "Build failed. Check the log for details.")
+    
+    def _build_error(self, error_msg, extracted_files):
+        """Called when build encounters an error (on main thread)."""
+        # Re-enable build buttons
+        self._set_build_buttons_state('normal')
+        
+        # Clean up extracted files
+        for f in extracted_files:
+            try:
+                os.remove(f)
+            except:
+                pass
+        
+        self.log(f"Build error: {error_msg}", 'fail')
+        messagebox.showerror("Error", error_msg)
+    
+    def _set_build_buttons_state(self, state):
+        """Enable or disable build-related buttons."""
+        # Find and update build buttons
+        # This searches through all widgets to find buttons with build-related text
         try:
-            proc = subprocess.Popen(['pyinstaller', 'autograder_build.spec', '--clean'],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=os.getcwd())
-            for line in iter(proc.stdout.readline, ''):
-                if line.strip():
-                    self.log(f"  {line.strip()}")
-                self.root.update_idletasks()
-            proc.wait()
-            if proc.returncode == 0:
-                self.log("Build complete!", 'pass')
-                messagebox.showinfo("Success", "Built! Check 'dist' folder.")
-            else:
-                self.log("Build failed!", 'fail')
-        except FileNotFoundError:
-            messagebox.showerror("Error", "PyInstaller not found.")
-        except Exception as e:
-            self.log(f"Error: {e}", 'fail')
+            for widget in self.root.winfo_children():
+                self._set_button_state_recursive(widget, state)
+        except:
+            pass
+    
+    def _set_button_state_recursive(self, widget, state):
+        """Recursively find and update button states."""
+        try:
+            if isinstance(widget, ttk.Button):
+                text = str(widget.cget('text')).lower()
+                if any(word in text for word in ['build', 'encode', 'launch']):
+                    widget.configure(state=state)
+            for child in widget.winfo_children():
+                self._set_button_state_recursive(child, state)
+        except:
+            pass
 
     def select_icon(self):
         """Select an icon file for the executable."""
