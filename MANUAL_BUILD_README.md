@@ -15,30 +15,13 @@ There are **two applications** you can build:
 
 ## Quick Start
 
-### Option 1: Use the Build Scripts (Easiest)
+### Building the Assignment Editor (for instructors)
 
-**Windows:**
-```cmd
-build-assignment-editor.bat
-```
-
-**Linux/macOS:**
-```bash
-chmod +x build-assignment-editor.sh
-./build-assignment-editor.sh
-```
-
-The scripts will:
-- Check for Python and required files
-- Install/upgrade dependencies automatically
-- Build the executable
-- Report success or failure with helpful messages
-
-### Option 2: Manual Build
+The Assignment Editor bundles `autograder.py` and `autograder-gui-app.py` inside the executable. The encoding functionality is built directly into the editor.
 
 ```bash
 # 1. Install dependencies
-pip install pyinstaller pandas openpyxl numpy matplotlib
+pip install pyinstaller pandas openpyxl numpy
 
 # 2. Make sure all required files are in the same directory:
 #    - assignment-editor-gui.py
@@ -145,8 +128,6 @@ Give students:
 
 | File | Purpose |
 |------|---------|
-| `build-assignment-editor.bat` | Windows build script (double-click to run) |
-| `build-assignment-editor.sh` | Linux/macOS build script |
 | `assignment-editor-gui.py` | Source code for Assignment Editor |
 | `assignment-editor.spec` | PyInstaller spec for Assignment Editor |
 | `autograder-gui-app.py` | Source code for student GUI (bundled in editor) |
