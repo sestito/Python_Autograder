@@ -1646,7 +1646,7 @@ This ensures all solution files are bundled with the executable.
                 import matplotlib.pyplot as plt
                 plt.close('all')
                 import numpy as np
-                self.log("  ✓ Libraries loaded successfully", 'pass')
+                self.log("  âœ“ Libraries loaded successfully", 'pass')
             except ImportError as e:
                 self.log(f"ERROR: Required library not available: {e}", 'fail')
                 self.log("Make sure matplotlib and numpy are installed.", 'fail')
@@ -1678,7 +1678,7 @@ This ensures all solution files are bundled with the executable.
             
             self.log("Loading autograder module...", 'info')
             from autograder import AutoGrader
-            self.log("  ✓ AutoGrader loaded successfully", 'pass')
+            self.log("  âœ“ AutoGrader loaded successfully", 'pass')
             
             grader = AutoGrader(self.sample_file)
             self.log("\n[1] EXECUTING STUDENT SCRIPT...", 'header')
@@ -2098,12 +2098,12 @@ else:
             # Encode config.ini
             with open('config.ini', 'rb') as f:
                 config_data = base64.b64encode(f.read()).decode('utf-8')
-            self.log(f"  ✓ Encoded config.ini ({len(config_data)} characters)")
+            self.log(f"  âœ“ Encoded config.ini ({len(config_data)} characters)")
             
             # Encode assignments.xlsx
             with open('assignments.xlsx', 'rb') as f:
                 excel_data = base64.b64encode(f.read()).decode('utf-8')
-            self.log(f"  ✓ Encoded assignments.xlsx ({len(excel_data)} characters)")
+            self.log(f"  âœ“ Encoded assignments.xlsx ({len(excel_data)} characters)")
             
             # Generate the embedded_resources.py module
             output = f'''"""
@@ -2165,7 +2165,7 @@ def cleanup_temp_file(filepath):
             with open('embedded_resources.py', 'w', encoding='utf-8') as f:
                 f.write(output)
             
-            self.log("  ✓ Generated embedded_resources.py", 'pass')
+            self.log("  âœ“ Generated embedded_resources.py", 'pass')
             self.log("Resources encoded successfully!", 'pass')
             messagebox.showinfo("Success", "Resources encoded!\n\nGenerated: embedded_resources.py")
             
@@ -2518,7 +2518,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],
-    excludes=['test', 'unittest', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
+    excludes=['test', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
     cipher=block_cipher,
     noarchive=False,
 )
@@ -2588,7 +2588,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],
-    excludes=['test', 'unittest', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
+    excludes=['test', 'pdb', 'doctest', 'IPython', 'jupyter', 'pytest', 'sphinx'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
