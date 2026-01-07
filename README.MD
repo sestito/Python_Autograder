@@ -16,12 +16,6 @@ chmod +x build-assignment-editor.sh
 ./build-assignment-editor.sh
 ```
 
-**Manual:**
-```bash
-pip install pyinstaller pandas openpyxl numpy matplotlib reportlab
-pyinstaller --clean assignment-editor.spec
-```
-
 Output: `dist/AssignmentEditor.exe` (Windows), `dist/AssignmentEditor.app` (Mac), or `dist/AssignmentEditor` (Linux)
 
 ### 2. Generate Example Files (Optional)
@@ -41,9 +35,53 @@ This creates `assignments.xlsx` and sample student submissions for testing.
 From within the Assignment Editor:
 1. Create or open `assignments.xlsx`
 2. Click **Encode Resources** to embed the assignments
-3. Click **Build Executable**
+3. Click **Build Executable** — a package selection dialog will appear
+4. Select the packages your assignments need, then click **Build with Selected Packages**
 
 Output: `dist/AutoGrader.exe` (or .app)
+
+---
+
+## Included Packages
+
+The AutoGrader includes these Python packages by default:
+
+| Package | Purpose |
+|---------|---------|
+| **Core (Always Included)** ||
+| `numpy` | Numerical computing |
+| `pandas` | Data manipulation |
+| `matplotlib` | Plotting |
+| `openpyxl` | Excel file support |
+| `reportlab` | PDF generation |
+| **Scientific (Default, Optional)** ||
+| `scipy` | Scientific computing |
+| `sympy` | Symbolic mathematics |
+| `scikit-learn` | Machine learning |
+| **Other Optional Packages** ||
+| `Pillow` | Image processing |
+| `seaborn` | Statistical visualization |
+| `statsmodels` | Statistical models |
+| `requests` | HTTP requests |
+| `opencv-python` | Computer vision |
+| `networkx` | Graph/network analysis |
+| `nltk` | Natural language processing |
+| `plotly` | Interactive plots |
+
+### Need Additional Packages?
+
+If your assignments require packages not in the list above:
+
+1. **Run Assignment Editor from Python source** instead of the executable:
+   - **Windows:** Double-click `run-assignment-editor.bat`
+   - **Linux/macOS:** Run `./run-assignment-editor.sh`
+
+2. Install the additional packages on your computer:
+   ```bash
+   pip install <package-name>
+   ```
+
+3. When building the AutoGrader, add the package names in the **Additional Custom Packages** field.
 
 ---
 
@@ -62,13 +100,16 @@ Output: `dist/AutoGrader.exe` (or .app)
 | `build-assignment-editor.sh` | Linux/macOS build script |
 | `build_executables.py` | Python build script (alternative) |
 | `encode_resources.py` | Embeds config and assignments into Python module |
+| **Launcher Scripts** ||
+| `run-assignment-editor.bat` | Run editor from Python (Windows) — use for custom packages |
+| `run-assignment-editor.sh` | Run editor from Python (Linux/macOS) — use for custom packages |
 | **Examples** ||
 | `setup-examples.bat` | Windows script to generate example files |
 | `setup-examples.sh` | Linux/macOS script to generate example files |
 | `setup-examples.py` | Python script that creates example assignments |
 | **Configuration** ||
 | `config.ini` | Email/SMTP settings |
-| `assignment_editor_settings.json` | Editor preferences |
+| `assignment_editor_settings.json` | Editor preferences (including selected packages) |
 | **Generated Files** ||
 | `assignments.xlsx` | Assignment definitions (created by editor) |
 | `embedded_resources.py` | Generated file with embedded config/assignments |
@@ -80,10 +121,10 @@ Output: `dist/AutoGrader.exe` (or .app)
 
 **"Python interpreter not found"** — Ensure Python is installed and in your system PATH.
 
-**"ModuleNotFoundError" when running executable** — Add the missing module to `hiddenimports` in the .spec file and rebuild.
+**"ModuleNotFoundError" when running executable** — The package isn't included in the build. Either add it via the package selection dialog (if running from source) or add it to `hiddenimports` in the .spec file and rebuild.
 
 **macOS: "App is damaged"** — Run: `xattr -cr dist/AssignmentEditor.app`
 
 **Windows: SmartScreen warning** — Click "More info" → "Run anyway" (expected for unsigned executables).
 
-**Executable is large (50-150 MB)** — Normal. PyInstaller bundles Python and all dependencies.
+**Executable is large (100-200+ MB)** — Normal. PyInstaller bundles Python and all dependencies including scipy/scikit-learn.

@@ -1133,6 +1133,447 @@ class HelpDialog(tk.Toplevel):
         ttk.Button(main, text="Close", command=self.destroy).pack(pady=10)
 
 
+class PackageSelectionDialog(tk.Toplevel):
+    """Dialog for selecting Python packages to include in the AutoGrader build."""
+    
+    # Core packages that are always included (cannot be unchecked)
+    CORE_PACKAGES = [
+        'pandas', 'openpyxl', 'numpy', 'matplotlib', 'reportlab'
+    ]
+    
+    # Common scientific packages (checked by default, can be unchecked)
+    DEFAULT_PACKAGES = [
+        'scipy', 'sympy', 'scikit-learn'
+    ]
+    
+    # Optional packages (unchecked by default)
+    OPTIONAL_PACKAGES = [
+        'Pillow', 'seaborn', 'statsmodels', 'requests', 
+        'opencv-python', 'networkx', 'nltk', 'plotly'
+    ]
+    
+    # Map package names to their import names (when different)
+    IMPORT_NAMES = {
+        'scikit-learn': 'sklearn',
+        'Pillow': 'PIL',
+        'opencv-python': 'cv2',
+    }
+    
+    def __init__(self, parent, selected_packages=None):
+        super().__init__(parent)
+        self.title("Select Packages for AutoGrader Build")
+        self.geometry("650x680")
+        self.transient(parent)
+        self.grab_set()
+        
+        # Initialize with defaults if not provided
+        if selected_packages is None:
+            self.selected_packages = set(self.DEFAULT_PACKAGES)
+        else:
+            self.selected_packages = set(selected_packages)
+        
+        self.custom_packages = []
+        self.result = None
+        self.checkboxes = {}
+        self.checkbox_widgets = {}
+        self.installed_packages = {}
+        
+        # Check Python and installed packages
+        self.python_available = self.check_python()
+        if self.python_available:
+            self.check_installed_packages()
+        
+        self.create_widgets()
+        self.center_on_parent(parent)
+    
+    def check_python(self):
+        """Check if Python is available on the system."""
+        python_path = get_python_executable()
+        if python_path:
+            self.python_cmd = python_path
+            # Get version
+            try:
+                import subprocess
+                result = subprocess.run([python_path, '--version'], 
+                                       capture_output=True, text=True, timeout=5,
+                                       **get_subprocess_flags())
+                self.python_version = result.stdout.strip() or result.stderr.strip()
+            except:
+                self.python_version = "Python (version unknown)"
+            return True
+        return False
+    
+    def check_installed_packages(self):
+        """Check which packages are installed in the system Python."""
+        import subprocess
+        
+        all_packages = self.CORE_PACKAGES + self.DEFAULT_PACKAGES + self.OPTIONAL_PACKAGES
+        
+        # Build a script that checks all packages at once
+        check_script_lines = ["import sys", "results = []"]
+        for pkg in all_packages:
+            import_name = self.IMPORT_NAMES.get(pkg, pkg)
+            check_script_lines.append(f"""
+try:
+    import {import_name}
+    results.append("{pkg}:1")
+except:
+    results.append("{pkg}:0")""")
+        check_script_lines.append('print("|".join(results))')
+        
+        check_script = "\n".join(check_script_lines)
+        
+        try:
+            result = subprocess.run(
+                [self.python_cmd, '-c', check_script],
+                capture_output=True, text=True, timeout=120,
+                **get_subprocess_flags()
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse results: "pkg1:1|pkg2:0|pkg3:1"
+                for item in result.stdout.strip().split("|"):
+                    if ":" in item:
+                        pkg, status = item.rsplit(":", 1)
+                        self.installed_packages[pkg] = (status == "1")
+            else:
+                # Fallback: mark all as not installed
+                for pkg in all_packages:
+                    self.installed_packages[pkg] = False
+        except:
+            # On error, mark all as not installed
+            for pkg in all_packages:
+                self.installed_packages[pkg] = False
+    
+    def check_single_package(self, pkg_name):
+        """Check if a single package is installed."""
+        if not self.python_available:
+            return False
+        import subprocess
+        import_name = self.IMPORT_NAMES.get(pkg_name, pkg_name)
+        try:
+            result = subprocess.run(
+                [self.python_cmd, '-c', f'import {import_name}'],
+                capture_output=True, text=True, timeout=10,
+                **get_subprocess_flags()
+            )
+            return result.returncode == 0
+        except:
+            return False
+    
+    def center_on_parent(self, parent):
+        self.update_idletasks()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        w, h = self.winfo_width(), self.winfo_height()
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        self.geometry(f"+{x}+{y}")
+    
+    def get_package_label(self, pkg, is_core=False):
+        """Get display label for a package showing install status."""
+        if not self.python_available:
+            return f"{pkg} (Python not found)"
+        
+        installed = self.installed_packages.get(pkg, False)
+        if installed:
+            return f"{pkg} ✓"
+        else:
+            return f"{pkg} ✗ (not installed)"
+    
+    def create_widgets(self):
+        main = ttk.Frame(self, padding="15")
+        main.pack(fill=tk.BOTH, expand=True)
+        
+        # Header
+        ttk.Label(main, text="Select Python Packages to Include", 
+                  font=('TkDefaultFont', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        
+        # Python status frame
+        python_frame = ttk.Frame(main)
+        python_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        if self.python_available:
+            status_text = f"✓ {self.python_version}"
+            status_color = 'green'
+        else:
+            status_text = "✗ Python not found - Cannot build executables"
+            status_color = 'red'
+        
+        ttk.Label(python_frame, text=status_text, foreground=status_color).pack(anchor=tk.W)
+        
+        # Path row with browse button
+        path_frame = ttk.Frame(python_frame)
+        path_frame.pack(fill=tk.X, anchor=tk.W)
+        
+        self.python_path_var = tk.StringVar(value=getattr(self, 'python_cmd', 'Not found'))
+        path_label = ttk.Label(path_frame, textvariable=self.python_path_var, 
+                               foreground='gray', font=('TkDefaultFont', 9))
+        path_label.pack(side=tk.LEFT)
+        
+        ttk.Button(path_frame, text="Browse...", command=self.browse_python, width=10).pack(side=tk.LEFT, padx=(10, 0))
+        
+        ttk.Label(main, text="Packages must be installed on this computer to be included in the build.\n"
+                  "✓ = installed, ✗ = not installed",
+                  wraplength=600, foreground='gray').pack(anchor=tk.W, pady=(0, 10))
+        
+        # Core packages (always included, disabled checkboxes)
+        core_frame = ttk.LabelFrame(main, text="Core Packages (Always Included)", padding="10")
+        core_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        core_inner = ttk.Frame(core_frame)
+        core_inner.pack(fill=tk.X)
+        
+        # Configure columns to have equal width
+        core_inner.columnconfigure(0, weight=1, uniform="core")
+        core_inner.columnconfigure(1, weight=1, uniform="core")
+        core_inner.columnconfigure(2, weight=1, uniform="core")
+        
+        self.core_checkbox_widgets = {}  # Store core package widgets for label updates
+        for i, pkg in enumerate(self.CORE_PACKAGES):
+            label = self.get_package_label(pkg, is_core=True)
+            installed = self.installed_packages.get(pkg, False)
+            var = tk.BooleanVar(value=True)
+            cb = ttk.Checkbutton(core_inner, text=label, variable=var, state='disabled')
+            cb.grid(row=i // 3, column=i % 3, sticky=tk.W, padx=10, pady=2)
+            self.core_checkbox_widgets[pkg] = cb
+        
+        # Common scientific packages (checked by default)
+        common_frame = ttk.LabelFrame(main, text="Common Scientific Packages (Recommended)", padding="10")
+        common_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        common_inner = ttk.Frame(common_frame)
+        common_inner.pack(fill=tk.X)
+        
+        # Configure columns to have equal width
+        common_inner.columnconfigure(0, weight=1, uniform="common")
+        common_inner.columnconfigure(1, weight=1, uniform="common")
+        common_inner.columnconfigure(2, weight=1, uniform="common")
+        
+        for i, pkg in enumerate(self.DEFAULT_PACKAGES):
+            label = self.get_package_label(pkg)
+            installed = self.installed_packages.get(pkg, False)
+            
+            # Only check by default if installed
+            should_check = (pkg in self.selected_packages) and installed
+            var = tk.BooleanVar(value=should_check)
+            
+            # Disable if not installed
+            state = 'normal' if installed else 'disabled'
+            cb = ttk.Checkbutton(common_inner, text=label, variable=var, state=state)
+            cb.grid(row=i // 3, column=i % 3, sticky=tk.W, padx=10, pady=2)
+            self.checkboxes[pkg] = var
+            self.checkbox_widgets[pkg] = cb
+        
+        # Optional packages
+        optional_frame = ttk.LabelFrame(main, text="Optional Packages", padding="10")
+        optional_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        optional_inner = ttk.Frame(optional_frame)
+        optional_inner.pack(fill=tk.X)
+        
+        # Configure columns to have equal width
+        optional_inner.columnconfigure(0, weight=1, uniform="opt")
+        optional_inner.columnconfigure(1, weight=1, uniform="opt")
+        
+        for i, pkg in enumerate(self.OPTIONAL_PACKAGES):
+            label = self.get_package_label(pkg)
+            installed = self.installed_packages.get(pkg, False)
+            
+            should_check = (pkg in self.selected_packages) and installed
+            var = tk.BooleanVar(value=should_check)
+            
+            state = 'normal' if installed else 'disabled'
+            cb = ttk.Checkbutton(optional_inner, text=label, variable=var, state=state)
+            cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=10, pady=2)
+            self.checkboxes[pkg] = var
+            self.checkbox_widgets[pkg] = cb
+        
+        # Custom packages entry
+        custom_frame = ttk.LabelFrame(main, text="Additional Custom Packages", padding="10")
+        custom_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(custom_frame, text="Enter package names separated by commas (e.g., requests, beautifulsoup4):",
+                  foreground='gray').pack(anchor=tk.W)
+        
+        entry_frame = ttk.Frame(custom_frame)
+        entry_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        self.custom_entry = ttk.Entry(entry_frame, width=50)
+        self.custom_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        ttk.Button(entry_frame, text="Check", command=self.check_custom_packages, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Custom packages status label
+        self.custom_status = ttk.Label(custom_frame, text="", foreground='gray')
+        self.custom_status.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Pre-fill with any custom packages from selected_packages
+        known_packages = set(self.CORE_PACKAGES + self.DEFAULT_PACKAGES + self.OPTIONAL_PACKAGES)
+        custom_existing = [p for p in self.selected_packages if p not in known_packages]
+        if custom_existing:
+            self.custom_entry.insert(0, ', '.join(custom_existing))
+        
+        # Warning note (only if there are missing core packages)
+        missing_core = [p for p in self.CORE_PACKAGES if not self.installed_packages.get(p, False)]
+        if missing_core and self.python_available:
+            warning_text = f"⚠ Missing core packages: {', '.join(missing_core)}\nInstall with: pip install {' '.join(missing_core)}"
+            ttk.Label(main, text=warning_text, foreground='red', wraplength=600).pack(anchor=tk.W, pady=(5, 0))
+        
+        # Buttons
+        btn_frame = ttk.Frame(main)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Disable OK button if Python not available
+        ok_state = 'normal' if self.python_available else 'disabled'
+        self.ok_button = ttk.Button(btn_frame, text="OK", command=self.ok, state=ok_state)
+        self.ok_button.pack(side=tk.RIGHT)
+        
+        ttk.Button(btn_frame, text="Select All Installed", command=self.select_all).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="Select Defaults", command=self.select_defaults).pack(side=tk.LEFT, padx=(5, 0))
+    
+    def browse_python(self):
+        """Allow user to browse for a different Python executable."""
+        from tkinter import filedialog
+        
+        if sys.platform == 'win32':
+            filetypes = [("Python Executable", "python.exe"), ("All Files", "*.*")]
+            initialdir = os.path.dirname(self.python_cmd) if self.python_available else None
+        else:
+            filetypes = [("All Files", "*")]
+            initialdir = os.path.dirname(self.python_cmd) if self.python_available else "/usr/bin"
+        
+        filepath = filedialog.askopenfilename(
+            title="Select Python Executable",
+            filetypes=filetypes,
+            initialdir=initialdir
+        )
+        
+        if filepath:
+            # Verify it's a valid Python
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [filepath, '--version'],
+                    capture_output=True, text=True, timeout=10,
+                    **get_subprocess_flags()
+                )
+                if result.returncode == 0:
+                    self.python_cmd = filepath
+                    self.python_version = result.stdout.strip() or result.stderr.strip()
+                    self.python_available = True
+                    self.python_path_var.set(filepath)
+                    
+                    # Re-check installed packages
+                    self.installed_packages = {}
+                    self.check_installed_packages()
+                    
+                    # Refresh the UI
+                    self.refresh_package_display()
+                else:
+                    messagebox.showerror("Invalid Python", 
+                        f"The selected file does not appear to be a valid Python executable.\n\n{result.stderr}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not verify Python executable:\n\n{str(e)}")
+    
+    def refresh_package_display(self):
+        """Refresh the package checkboxes after Python changes."""
+        # Update core package labels (they stay disabled but label changes)
+        for pkg, widget in self.core_checkbox_widgets.items():
+            new_label = self.get_package_label(pkg, is_core=True)
+            widget.config(text=new_label)
+        
+        # Update optional checkbox states and labels based on new installed_packages
+        for pkg, var in self.checkboxes.items():
+            installed = self.installed_packages.get(pkg, False)
+            widget = self.checkbox_widgets.get(pkg)
+            if widget:
+                # Update the checkbox label
+                new_label = self.get_package_label(pkg)
+                widget.config(text=new_label)
+                
+                # Update the checkbox state
+                if installed:
+                    widget.config(state='normal')
+                else:
+                    widget.config(state='disabled')
+                    var.set(False)
+        
+        # Update OK button state
+        self.ok_button.config(state='normal' if self.python_available else 'disabled')
+    
+    def check_custom_packages(self):
+        """Check if custom packages are installed."""
+        custom_text = self.custom_entry.get().strip()
+        if not custom_text:
+            self.custom_status.config(text="Enter package names to check", foreground='gray')
+            return
+        
+        if not self.python_available:
+            self.custom_status.config(text="Cannot check - Python not found", foreground='red')
+            return
+        
+        results = []
+        for pkg in custom_text.split(','):
+            pkg = pkg.strip()
+            if pkg:
+                installed = self.check_single_package(pkg)
+                status = "✓" if installed else "✗"
+                results.append(f"{pkg} {status}")
+        
+        self.custom_status.config(
+            text=", ".join(results),
+            foreground='green' if all('✓' in r for r in results) else 'orange'
+        )
+    
+    def select_all(self):
+        """Select all installed packages."""
+        for pkg, var in self.checkboxes.items():
+            if self.installed_packages.get(pkg, False):
+                var.set(True)
+    
+    def select_defaults(self):
+        """Select default packages (only if installed)."""
+        for pkg, var in self.checkboxes.items():
+            should_check = (pkg in self.DEFAULT_PACKAGES) and self.installed_packages.get(pkg, False)
+            var.set(should_check)
+        self.custom_entry.delete(0, tk.END)
+        self.custom_status.config(text="")
+    
+    def ok(self):
+        # Collect selected packages
+        self.result = set()
+        for pkg, var in self.checkboxes.items():
+            if var.get():
+                self.result.add(pkg)
+        
+        # Add custom packages (validate they exist)
+        custom_text = self.custom_entry.get().strip()
+        if custom_text:
+            missing = []
+            for pkg in custom_text.split(','):
+                pkg = pkg.strip()
+                if pkg:
+                    if self.check_single_package(pkg):
+                        self.result.add(pkg)
+                    else:
+                        missing.append(pkg)
+            
+            if missing:
+                if not messagebox.askyesno("Missing Packages", 
+                    f"These packages are not installed:\n{', '.join(missing)}\n\n"
+                    "Continue without them?"):
+                    return
+        
+        self.destroy()
+    
+    def cancel(self):
+        self.result = None
+        self.destroy()
+
+
 class AssignmentEditorGUI:
     def __init__(self, root):
         self.root = root
@@ -1146,6 +1587,7 @@ class AssignmentEditorGUI:
         self.sample_file = ""
         self.icon_file = ""
         self.modified = False
+        self.selected_packages = set(PackageSelectionDialog.DEFAULT_PACKAGES)  # Default packages for build
         self.load_settings()
         self.create_widgets()
         self.load_assignments()
@@ -1158,6 +1600,9 @@ class AssignmentEditorGUI:
                     self.extra_files = s.get('extra_files', [])
                     self.sample_file = s.get('sample_file', '')
                     self.icon_file = s.get('icon_file', '')
+                    saved_packages = s.get('selected_packages', None)
+                    if saved_packages is not None:
+                        self.selected_packages = set(saved_packages)
             except:
                 pass
 
@@ -1167,7 +1612,8 @@ class AssignmentEditorGUI:
                 json.dump({
                     'extra_files': self.extra_files, 
                     'sample_file': self.sample_file,
-                    'icon_file': self.icon_file
+                    'icon_file': self.icon_file,
+                    'selected_packages': list(self.selected_packages)
                 }, f)
         except:
             pass
@@ -1266,6 +1712,7 @@ class AssignmentEditorGUI:
         ttk.Button(bf, text="Launch AutoGrader", command=self.launch_autograder_gui, width=18).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Extra Files...", command=self.manage_extra_files, width=13).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Set Icon...", command=self.select_icon, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bf, text="Packages...", command=self.configure_packages, width=11).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="Build Executable", command=self.build_executable, width=16).pack(side=tk.LEFT, padx=2)
         ttk.Button(bf, text="?", command=self.show_build_help, width=3).pack(side=tk.LEFT, padx=2)
         
@@ -1307,7 +1754,18 @@ class AssignmentEditorGUI:
 2. Click "Encode Resources" to embed the latest files
 3. Click "Extra Files..." to review/add additional files
 4. Click "Set Icon..." to choose a custom application icon (optional)
-5. Click "Build Executable" to create the standalone application
+5. Click "Packages..." to select which Python packages to include
+6. Click "Build Executable" to create the standalone application
+
+=== Python Packages ===
+Core packages are always included:
+  numpy, pandas, matplotlib, openpyxl, reportlab
+
+Default additional packages (can be changed via "Packages..."):
+  scipy, sympy, scikit-learn
+
+Custom packages can be added if you run the Assignment Editor
+from Python source (use run-assignment-editor.bat/.sh).
 
 === Solution Files ===
 Solution files are automatically included from:
@@ -2207,9 +2665,39 @@ debug = false
             self.log(f"Error creating config.ini: {e}", 'fail')
             return False
 
+    def find_python(self):
+        """Find Python interpreter on the system."""
+        return get_python_executable()
+
+    def configure_packages(self):
+        """Open dialog to configure packages for AutoGrader build."""
+        pkg_dialog = PackageSelectionDialog(self.root, self.selected_packages)
+        self.root.wait_window(pkg_dialog)
+        
+        if pkg_dialog.result is not None:
+            self.selected_packages = pkg_dialog.result
+            self.save_settings()
+            
+            # Log the selection
+            if self.selected_packages:
+                pkg_list = ', '.join(sorted(self.selected_packages))
+                self.log(f"Packages configured: {pkg_list}", 'info')
+            else:
+                self.log("No additional packages selected (core packages always included)", 'info')
+
     def build_executable(self):
         """Start the build process."""
+        # Check for Python first
+        python_cmd = self.find_python()
+        if not python_cmd:
+            messagebox.showerror("Python Not Found", 
+                "Python is not installed or not in PATH.\n\n"
+                "Building executables requires Python to be installed.\n\n"
+                "Please install Python 3.8+ and ensure it's in your system PATH.")
+            return
+        
         self.log("Preparing build...", 'info')
+        self.log(f"Using Python: {python_cmd}", 'info')
         
         # Track files we extract so we can clean them up later
         extracted_files = []
@@ -2286,14 +2774,91 @@ debug = false
                         pass
                 return
         
-        if not messagebox.askyesno("Build", "Build executable?\n\nThis may take a few minutes."):
-            # Clean up extracted files
+        # Build confirmation with package list
+        core_packages = "numpy, pandas, matplotlib, openpyxl, reportlab"
+        if self.selected_packages:
+            additional_packages = ", ".join(sorted(self.selected_packages))
+            package_msg = f"Core packages (always included):\n  {core_packages}\n\nAdditional packages:\n  {additional_packages}"
+        else:
+            package_msg = f"Core packages (always included):\n  {core_packages}\n\nNo additional packages selected."
+        
+        # Custom dialog with three options
+        confirm_dialog = tk.Toplevel(self.root)
+        confirm_dialog.title("Build Executable")
+        confirm_dialog.geometry("450x280")
+        confirm_dialog.transient(self.root)
+        confirm_dialog.grab_set()
+        
+        # Center on parent
+        confirm_dialog.update_idletasks()
+        pw, ph = self.root.winfo_width(), self.root.winfo_height()
+        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
+        w, h = confirm_dialog.winfo_width(), confirm_dialog.winfo_height()
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        confirm_dialog.geometry(f"+{x}+{y}")
+        
+        result = {'action': None}
+        
+        main_frame = ttk.Frame(confirm_dialog, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(main_frame, text="Build AutoGrader Executable?", 
+                  font=('TkDefaultFont', 11, 'bold')).pack(anchor=tk.W)
+        ttk.Label(main_frame, text="This may take a few minutes.", 
+                  foreground='gray').pack(anchor=tk.W, pady=(0, 10))
+        
+        pkg_frame = ttk.LabelFrame(main_frame, text="Packages to Include", padding="10")
+        pkg_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        pkg_label = ttk.Label(pkg_frame, text=package_msg, justify=tk.LEFT)
+        pkg_label.pack(anchor=tk.W)
+        
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+        
+        def on_build():
+            result['action'] = 'build'
+            confirm_dialog.destroy()
+        
+        def on_change():
+            result['action'] = 'change'
+            confirm_dialog.destroy()
+        
+        def on_cancel():
+            result['action'] = 'cancel'
+            confirm_dialog.destroy()
+        
+        ttk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text="Change Packages...", command=on_change).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text="Build", command=on_build).pack(side=tk.RIGHT)
+        
+        confirm_dialog.wait_window()
+        
+        if result['action'] == 'cancel':
             for f in extracted_files:
                 try:
                     os.remove(f)
                 except:
                     pass
             return
+        elif result['action'] == 'change':
+            # Show package selection dialog
+            pkg_dialog = PackageSelectionDialog(self.root, self.selected_packages)
+            self.root.wait_window(pkg_dialog)
+            
+            if pkg_dialog.result is None:
+                # User cancelled from package dialog
+                for f in extracted_files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+                return
+            
+            # Save selected packages
+            self.selected_packages = pkg_dialog.result
+            self.save_settings()
         
         # Create the spec file
         self.create_build_spec()
@@ -2488,6 +3053,57 @@ debug = false
             icon_line = f", icon='{icon_path}'"
             self.log(f"Including icon: {icon_path}", 'info')
         
+        # Build hiddenimports list based on selected packages
+        base_imports = [
+            'autograder', 'embedded_resources',
+            # Core packages (always included)
+            'pandas', 'openpyxl', 'numpy',
+            'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg',
+            'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles',
+            'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums',
+            # GUI
+            'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
+            'tkinter.scrolledtext',
+            # Standard library
+            'configparser', 'smtplib', 'email',
+            'email.mime.text', 'email.mime.multipart', 'email.mime.base',
+            'socket', 'getpass', 'base64', 'tempfile',
+        ]
+        
+        # Package-specific imports for common scientific packages
+        package_imports = {
+            'scipy': ['scipy', 'scipy.optimize', 'scipy.integrate', 'scipy.linalg', 
+                     'scipy.interpolate', 'scipy.stats', 'scipy.signal', 'scipy.fft'],
+            'sympy': ['sympy', 'sympy.core', 'sympy.parsing', 'sympy.printing'],
+            'scikit-learn': ['sklearn', 'sklearn.linear_model', 'sklearn.model_selection',
+                       'sklearn.preprocessing', 'sklearn.metrics', 'sklearn.cluster'],
+            'Pillow': ['PIL', 'PIL.Image'],
+            'seaborn': ['seaborn'],
+            'statsmodels': ['statsmodels', 'statsmodels.api'],
+            'requests': ['requests'],
+            'opencv-python': ['cv2'],
+            'networkx': ['networkx'],
+            'nltk': ['nltk'],
+            'plotly': ['plotly', 'plotly.express', 'plotly.graph_objects'],
+        }
+        
+        # Add imports for selected packages
+        additional_imports = []
+        for pkg in self.selected_packages:
+            if pkg in package_imports:
+                additional_imports.extend(package_imports[pkg])
+            else:
+                # For custom packages, just add the package name
+                additional_imports.append(pkg)
+        
+        all_imports = base_imports + additional_imports
+        
+        # Format hiddenimports for spec file
+        hiddenimports_str = ',\n        '.join(f"'{imp}'" for imp in all_imports)
+        
+        # Log selected packages
+        self.log(f"Including packages: {', '.join(sorted(self.selected_packages))}", 'info')
+        
         # Detect platform for appropriate build mode
         is_mac = sys.platform == 'darwin'
         
@@ -2506,14 +3122,7 @@ a = Analysis(
 {datas_str}
     ],
     hiddenimports=[
-        'autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
-        'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg',
-        'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles',
-        'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums',
-        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
-        'tkinter.scrolledtext', 'configparser', 'smtplib', 'email',
-        'email.mime.text', 'email.mime.multipart', 'email.mime.base',
-        'socket', 'getpass', 'base64', 'tempfile',
+        {hiddenimports_str},
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -2576,14 +3185,7 @@ a = Analysis(
 {datas_str}
     ],
     hiddenimports=[
-        'autograder', 'embedded_resources', 'pandas', 'openpyxl', 'numpy',
-        'matplotlib', 'matplotlib.pyplot', 'matplotlib.backends.backend_tkagg',
-        'reportlab', 'reportlab.lib', 'reportlab.lib.pagesizes', 'reportlab.lib.styles',
-        'reportlab.lib.units', 'reportlab.platypus', 'reportlab.lib.enums',
-        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
-        'tkinter.scrolledtext', 'configparser', 'smtplib', 'email',
-        'email.mime.text', 'email.mime.multipart', 'email.mime.base',
-        'socket', 'getpass', 'base64', 'tempfile',
+        {hiddenimports_str},
     ],
     hookspath=[],
     hooksconfig={{}},

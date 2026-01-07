@@ -160,3 +160,4 @@ cython_debug/
 #.idea/
 V3/assignment_editor_settings.json
 V3/embedded_resources.py
+assignment_editor_settings.json
