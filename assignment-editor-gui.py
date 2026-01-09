@@ -166,6 +166,29 @@ def ensure_bundled_files_available(filenames, target_dir=None):
     
     return (len(missing) == 0, missing)
 
+
+def check_core_packages_at_startup():
+    """
+    Check if core packages are installed at startup.
+    Shows a warning dialog if any core packages are missing, but allows the user to continue.
+    Returns a tuple: (all_installed: bool, missing_packages: list)
+    """
+    core_packages = ['pandas', 'openpyxl', 'numpy', 'matplotlib', 'reportlab']
+    import_names = {
+        'reportlab': 'reportlab'
+    }
+    
+    missing = []
+    for pkg in core_packages:
+        import_name = import_names.get(pkg, pkg)
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing.append(pkg)
+    
+    return (len(missing) == 0, missing)
+
+
 SETTINGS_FILE = 'assignment_editor_settings.json'
 
 def friendly_name(s):
@@ -2104,7 +2127,7 @@ This ensures all solution files are bundled with the executable.
                 import matplotlib.pyplot as plt
                 plt.close('all')
                 import numpy as np
-                self.log("  âœ“ Libraries loaded successfully", 'pass')
+                self.log("  ✓ Libraries loaded successfully", 'pass')
             except ImportError as e:
                 self.log(f"ERROR: Required library not available: {e}", 'fail')
                 self.log("Make sure matplotlib and numpy are installed.", 'fail')
@@ -2136,7 +2159,7 @@ This ensures all solution files are bundled with the executable.
             
             self.log("Loading autograder module...", 'info')
             from autograder import AutoGrader
-            self.log("  âœ“ AutoGrader loaded successfully", 'pass')
+            self.log("  ✓ AutoGrader loaded successfully", 'pass')
             
             grader = AutoGrader(self.sample_file)
             self.log("\n[1] EXECUTING STUDENT SCRIPT...", 'header')
@@ -2556,12 +2579,12 @@ else:
             # Encode config.ini
             with open('config.ini', 'rb') as f:
                 config_data = base64.b64encode(f.read()).decode('utf-8')
-            self.log(f"  âœ“ Encoded config.ini ({len(config_data)} characters)")
+            self.log(f"  ✓ Encoded config.ini ({len(config_data)} characters)")
             
             # Encode assignments.xlsx
             with open('assignments.xlsx', 'rb') as f:
                 excel_data = base64.b64encode(f.read()).decode('utf-8')
-            self.log(f"  âœ“ Encoded assignments.xlsx ({len(excel_data)} characters)")
+            self.log(f"  ✓ Encoded assignments.xlsx ({len(excel_data)} characters)")
             
             # Generate the embedded_resources.py module
             output = f'''"""
@@ -2623,7 +2646,7 @@ def cleanup_temp_file(filepath):
             with open('embedded_resources.py', 'w', encoding='utf-8') as f:
                 f.write(output)
             
-            self.log("  âœ“ Generated embedded_resources.py", 'pass')
+            self.log("  ✓ Generated embedded_resources.py", 'pass')
             self.log("Resources encoded successfully!", 'pass')
             messagebox.showinfo("Success", "Resources encoded!\n\nGenerated: embedded_resources.py")
             
@@ -2698,6 +2721,64 @@ debug = false
         
         self.log("Preparing build...", 'info')
         self.log(f"Using Python: {python_cmd}", 'info')
+        
+        # Check for missing core packages before building
+        self.log("Checking core packages...", 'info')
+        core_packages = PackageSelectionDialog.CORE_PACKAGES
+        missing_core = []
+        
+        # Build a script to check all core packages
+        check_lines = ["import sys", "missing = []"]
+        for pkg in core_packages:
+            import_name = PackageSelectionDialog.IMPORT_NAMES.get(pkg, pkg)
+            check_lines.append(f"""
+try:
+    import {import_name}
+except ImportError:
+    missing.append("{pkg}")""")
+        check_lines.append("""
+if missing:
+    print("MISSING:" + ",".join(missing))
+    sys.exit(1)
+else:
+    print("OK")
+    sys.exit(0)
+""")
+        check_script = "\n".join(check_lines)
+        
+        try:
+            result = subprocess.run(
+                [python_cmd, '-c', check_script],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                **get_subprocess_flags()
+            )
+            if result.returncode != 0:
+                output = result.stdout.strip()
+                if output.startswith("MISSING:"):
+                    missing_core = output.replace("MISSING:", "").split(",")
+        except Exception as e:
+            self.log(f"WARNING: Could not check core packages: {e}", 'info')
+        
+        if missing_core:
+            missing_str = ', '.join(missing_core)
+            pip_cmd = f"pip install {' '.join(missing_core)}"
+            self.log(f"ERROR: Missing core packages: {missing_str}", 'fail')
+            messagebox.showerror(
+                "Cannot Build - Missing Core Packages",
+                f"The following core packages are required but not installed:\n\n"
+                f"  {missing_str}\n\n"
+                f"These packages are essential for the AutoGrader to function.\n\n"
+                f"Please install them first:\n"
+                f"  {pip_cmd}\n\n"
+                f"Or use the launcher script with the install option:\n"
+                f"  run-assignment-editor.bat install  (Windows)\n"
+                f"  ./run-assignment-editor.sh install (Mac/Linux)"
+            )
+            return
+        
+        self.log("  ✓ All core packages installed", 'pass')
         
         # Track files we extract so we can clean them up later
         extracted_files = []
@@ -3260,6 +3341,33 @@ exe = EXE(
 
 def main():
     root = tk.Tk()
+    
+    # Check for missing core packages at startup
+    all_installed, missing_packages = check_core_packages_at_startup()
+    
+    if not all_installed:
+        # Show warning dialog but allow user to continue
+        missing_str = ', '.join(missing_packages)
+        pip_cmd = f"pip install {' '.join(missing_packages)}"
+        
+        msg = (
+            f"The following core packages are not installed:\n\n"
+            f"  {missing_str}\n\n"
+            f"Some features may not work correctly:\n"
+            f"  â€¢ reportlab: Required for PDF export in AutoGrader\n"
+            f"  â€¢ Other packages: Required for AutoGrader builds\n\n"
+            f"To install missing packages, run:\n"
+            f"  {pip_cmd}\n\n"
+            f"Or use the launcher script with the install option:\n"
+            f"  run-assignment-editor.bat install  (Windows)\n"
+            f"  ./run-assignment-editor.sh install (Mac/Linux)\n\n"
+            f"Continue anyway?"
+        )
+        
+        if not messagebox.askyesno("Missing Core Packages", msg, icon='warning'):
+            root.destroy()
+            return
+    
     app = AssignmentEditorGUI(root)
     def on_closing():
         if app.modified:
