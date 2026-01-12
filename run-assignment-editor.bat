@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableDelayedExpansion
 REM ============================================================
 REM Run Assignment Editor from Python Source
 REM ============================================================
@@ -55,17 +56,17 @@ if %errorlevel% neq 0 (
     echo   pandas, openpyxl, numpy, matplotlib, reportlab
     echo.
     set /p INSTALL_NOW="Would you like to install them now? [Y/n]: "
-    if /i "%INSTALL_NOW%"=="" set INSTALL_NOW=Y
-    if /i "%INSTALL_NOW%"=="Y" (
+    if /i "!INSTALL_NOW!"=="" set INSTALL_NOW=Y
+    if /i "!INSTALL_NOW!"=="Y" (
         echo.
         echo Installing core packages...
         %PIP_CMD% install pandas openpyxl numpy matplotlib reportlab
-        if %errorlevel% neq 0 (
+        if !errorlevel! neq 0 (
             echo.
             echo WARNING: Some packages may not have installed correctly.
             echo.
             set /p CONTINUE="Continue anyway? [y/N]: "
-            if /i not "%CONTINUE%"=="Y" (
+            if /i not "!CONTINUE!"=="Y" (
                 echo Exiting.
                 pause
                 exit /b 1
@@ -96,11 +97,11 @@ if %errorlevel% neq 0 (
     echo to build executables until PyInstaller is installed.
     echo.
     set /p INSTALL_PYINSTALLER="Would you like to install PyInstaller now? [y/N]: "
-    if /i "%INSTALL_PYINSTALLER%"=="Y" (
+    if /i "!INSTALL_PYINSTALLER!"=="Y" (
         echo.
         echo Installing PyInstaller...
         %PIP_CMD% install pyinstaller
-        if %errorlevel% neq 0 (
+        if !errorlevel! neq 0 (
             echo.
             echo WARNING: PyInstaller may not have installed correctly.
             echo You can install it later with: %PIP_CMD% install pyinstaller
@@ -135,3 +136,4 @@ if %errorlevel% neq 0 (
     echo.
     pause
 )
+endlocal

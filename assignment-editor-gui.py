@@ -3346,6 +3346,9 @@ def main():
     all_installed, missing_packages = check_core_packages_at_startup()
     
     if not all_installed:
+        # Hide the root window while showing the messagebox
+        root.withdraw()
+        
         # Show warning dialog but allow user to continue
         missing_str = ', '.join(missing_packages)
         pip_cmd = f"pip install {' '.join(missing_packages)}"
@@ -3354,8 +3357,8 @@ def main():
             f"The following core packages are not installed:\n\n"
             f"  {missing_str}\n\n"
             f"Some features may not work correctly:\n"
-            f"  â€¢ reportlab: Required for PDF export in AutoGrader\n"
-            f"  â€¢ Other packages: Required for AutoGrader builds\n\n"
+            f"  - reportlab: Required for PDF export in AutoGrader\n"
+            f"  - Other packages: Required for AutoGrader builds\n\n"
             f"To install missing packages, run:\n"
             f"  {pip_cmd}\n\n"
             f"Or use the launcher script with the install option:\n"
@@ -3367,6 +3370,9 @@ def main():
         if not messagebox.askyesno("Missing Core Packages", msg, icon='warning'):
             root.destroy()
             return
+        
+        # Show the root window again if user chose to continue
+        root.deiconify()
     
     app = AssignmentEditorGUI(root)
     def on_closing():

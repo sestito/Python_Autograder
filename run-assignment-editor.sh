@@ -49,9 +49,7 @@ fi
 
 # Check for core packages
 echo "Checking for required packages..."
-$PYTHON_CMD -c "import pandas, openpyxl, numpy, matplotlib, reportlab" 2>/dev/null
-
-if [ $? -ne 0 ]; then
+if ! $PYTHON_CMD -c "import pandas, openpyxl, numpy, matplotlib, reportlab" 2>/dev/null; then
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo -e "${YELLOW}  Some required packages are missing!${NC}"
@@ -63,12 +61,14 @@ if [ $? -ne 0 ]; then
     read -p "Would you like to install them now? [Y/n]: " INSTALL_NOW
     INSTALL_NOW=${INSTALL_NOW:-Y}
     
-    if [[ "$INSTALL_NOW" =~ ^[Yy]$ ]]; then
+    if [[ "$INSTALL_NOW" =~ ^[Yy]$ ]] || [[ -z "$INSTALL_NOW" ]]; then
         echo ""
         echo -e "${BLUE}Installing core packages...${NC}"
-        $PIP_CMD install pandas openpyxl numpy matplotlib reportlab
-        
-        if [ $? -ne 0 ]; then
+        if $PIP_CMD install pandas openpyxl numpy matplotlib reportlab; then
+            echo ""
+            echo -e "${GREEN}Packages installed successfully!${NC}"
+            echo ""
+        else
             echo ""
             echo -e "${YELLOW}WARNING: Some packages may not have installed correctly.${NC}"
             echo ""
@@ -77,10 +77,6 @@ if [ $? -ne 0 ]; then
                 echo "Exiting."
                 exit 1
             fi
-        else
-            echo ""
-            echo -e "${GREEN}Packages installed successfully!${NC}"
-            echo ""
         fi
     else
         echo ""
@@ -91,9 +87,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Check for PyInstaller (optional - only needed for building)
-$PYTHON_CMD -c "import PyInstaller" 2>/dev/null
-
-if [ $? -ne 0 ]; then
+if ! $PYTHON_CMD -c "import PyInstaller" 2>/dev/null; then
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo -e "${YELLOW}  NOTE: PyInstaller is not installed${NC}"
@@ -108,16 +102,14 @@ if [ $? -ne 0 ]; then
     if [[ "$INSTALL_PYINSTALLER" =~ ^[Yy]$ ]]; then
         echo ""
         echo -e "${BLUE}Installing PyInstaller...${NC}"
-        $PIP_CMD install pyinstaller
-        
-        if [ $? -ne 0 ]; then
+        if $PIP_CMD install pyinstaller; then
             echo ""
-            echo -e "${YELLOW}WARNING: PyInstaller may not have installed correctly.${NC}"
-            echo -e "You can install it later with: ${BLUE}$PIP_CMD install pyinstaller${NC}"
+            echo -e "${GREEN}PyInstaller installed successfully!${NC}"
             echo ""
         else
             echo ""
-            echo -e "${GREEN}PyInstaller installed successfully!${NC}"
+            echo -e "${YELLOW}WARNING: PyInstaller may not have installed correctly.${NC}"
+            echo -e "You can install it later with: ${BLUE}$PIP_CMD install pyinstaller${NC}"
             echo ""
         fi
     else
