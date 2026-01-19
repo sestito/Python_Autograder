@@ -45,6 +45,25 @@ def fix_macos_window(root):
         root.update()
 
 
+def check_macos_xcode_tools():
+    """
+    Check if Xcode Command Line Tools are installed on macOS.
+    Returns True if installed (or not on macOS), False if missing.
+    """
+    if sys.platform != 'darwin':
+        return True  # Not macOS, no check needed
+    
+    try:
+        result = subprocess.run(
+            ['xcode-select', '-p'],
+            capture_output=True,
+            timeout=10
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 # Temporary directory for extracted files (cleaned up on exit)
 _temp_extract_dir = None
 
@@ -2743,6 +2762,18 @@ debug = false
                 "Python is not installed or not in PATH.\n\n"
                 "Building executables requires Python to be installed.\n\n"
                 "Please install Python 3.8+ and ensure it's in your system PATH.")
+            return
+        
+        # macOS: Check for Xcode Command Line Tools
+        if sys.platform == 'darwin' and not check_macos_xcode_tools():
+            messagebox.showerror("Xcode Command Line Tools Required",
+                "Building on macOS requires Xcode Command Line Tools.\n\n"
+                "The 'lipo' command (part of Xcode tools) is needed by PyInstaller\n"
+                "to create macOS application bundles.\n\n"
+                "To install, run this command in Terminal:\n\n"
+                "    xcode-select --install\n\n"
+                "A dialog will appear to download and install the tools.\n"
+                "Once complete, try building again.")
             return
         
         self.log("Preparing build...", 'info')

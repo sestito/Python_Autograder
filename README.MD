@@ -9,6 +9,12 @@ A system for creating and grading Python assignments. Instructors use the **Assi
 ### Python Version
 - **Python 3.8 or higher**
 
+### macOS Only: Xcode Command Line Tools
+Building executables on macOS requires the Xcode Command Line Tools:
+```bash
+xcode-select --install
+```
+
 ### Required Packages
 
 ```bash
@@ -153,6 +159,9 @@ When building the AutoGrader, you can select which packages to include. Packages
 ---
 
 ## Troubleshooting
+
+**macOS: "lipo command failed" or "No developer tools were found"**  
+Install Xcode Command Line Tools: `xcode-select --install`
 
 **"ModuleNotFoundError: No module named 'xxx'"**  
 Install the missing package: `pip install xxx`

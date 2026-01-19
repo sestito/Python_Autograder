@@ -40,6 +40,36 @@ fi
 echo -e "Using: ${BLUE}$($PYTHON_CMD --version)${NC}"
 echo ""
 
+# macOS: Check for Xcode Command Line Tools (needed for building executables)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    if ! xcode-select -p &> /dev/null; then
+        echo -e "${YELLOW}============================================================${NC}"
+        echo -e "${YELLOW}  NOTE: Xcode Command Line Tools not installed${NC}"
+        echo -e "${YELLOW}============================================================${NC}"
+        echo ""
+        echo "Building executables on macOS requires Xcode Command Line Tools."
+        echo "You can still use the Assignment Editor, but builds will fail."
+        echo ""
+        read -p "Would you like to install them now? [Y/n]: " INSTALL_XCODE
+        INSTALL_XCODE=${INSTALL_XCODE:-Y}
+        
+        if [[ "$INSTALL_XCODE" =~ ^[Yy]$ ]] || [[ -z "$INSTALL_XCODE" ]]; then
+            echo ""
+            echo -e "${BLUE}Starting Xcode Command Line Tools installation...${NC}"
+            xcode-select --install
+            echo ""
+            echo -e "${YELLOW}NOTE: A dialog should appear to install the tools.${NC}"
+            echo "Once installation completes, you can build executables."
+            echo ""
+        else
+            echo ""
+            echo "Skipping Xcode tools installation."
+            echo -e "To install later: ${BLUE}xcode-select --install${NC}"
+            echo ""
+        fi
+    fi
+fi
+
 # Check if assignment-editor-gui.py exists
 if [ ! -f "assignment-editor-gui.py" ]; then
     echo -e "${RED}ERROR: assignment-editor-gui.py not found!${NC}"
