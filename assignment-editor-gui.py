@@ -19,6 +19,32 @@ import configparser
 # List of bundled resource files that ship with the executable
 BUNDLED_FILES = ['autograder.py', 'autograder-gui-app.py']
 
+
+def fix_macos_window(root):
+    """
+    Fix for macOS black window issue with tkinter.
+    This is a known issue on macOS Ventura/Sonoma where tkinter windows
+    appear black until interacted with. The fix involves forcing the window
+    to refresh and come to the foreground.
+    """
+    if sys.platform == 'darwin':
+        # Force window to update its display
+        root.update_idletasks()
+        root.update()
+        
+        # Briefly set topmost to force window manager to render it
+        root.attributes('-topmost', True)
+        root.update()
+        root.attributes('-topmost', False)
+        
+        # Bring window to front and focus
+        root.lift()
+        root.focus_force()
+        
+        # One more update to ensure everything is rendered
+        root.update()
+
+
 # Temporary directory for extracted files (cleaned up on exit)
 _temp_extract_dir = None
 
@@ -3375,6 +3401,10 @@ def main():
         root.deiconify()
     
     app = AssignmentEditorGUI(root)
+    
+    # Fix macOS black window issue
+    fix_macos_window(root)
+    
     def on_closing():
         if app.modified:
             r = messagebox.askyesnocancel("Unsaved Changes", "Save changes before closing?")
