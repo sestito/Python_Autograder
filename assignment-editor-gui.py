@@ -968,6 +968,9 @@ class TestEditorDialog(tk.Toplevel):
         self.update_ti_label()
         for f, (var, wtype) in self.field_widgets.items():
             val = clean_value(self.test_data.get(f, ''))
+            # Normalize boolean values to lowercase to match radio button values
+            if wtype == 'boolean' and val:
+                val = val.lower()
             var.set(val)
         self.pass_fb.set(clean_value(self.test_data.get('pass_feedback', '')))
         self.fail_fb.set(clean_value(self.test_data.get('fail_feedback', '')))

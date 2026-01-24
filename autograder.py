@@ -149,7 +149,16 @@ class AutoGrader:
         def execute_code():
             exec(self._content, self.execution_namespace, self.execution_namespace)
         
+        # Save current working directory and change to student file's directory
+        original_cwd = os.getcwd()
+        student_dir = os.path.dirname(os.path.abspath(self.filepath)) if self.filepath else None
+        student_filename = os.path.basename(self.filepath) if self.filepath else "your Python file"
+        
         try:
+            # Change to student file's directory so file operations work correctly
+            if student_dir:
+                os.chdir(student_dir)
+            
             run_with_timeout(execute_code, timeout=self.timeout)
             
             if variables_to_capture is None:
@@ -171,10 +180,53 @@ class AutoGrader:
         except TimeoutException as e:
             self._log_result(False, str(e), custom_fail_feedback=custom_fail_feedback)
             return False
+        except FileNotFoundError as e:
+            # Extract the filename from the error message
+            error_str = str(e)
+            # Try to get a cleaner filename from the error
+            missing_file = error_str
+            if "No such file or directory:" in error_str:
+                missing_file = error_str.split("No such file or directory:")[-1].strip().strip("'\"")
+            elif ":" in error_str:
+                # Handle format like "[Errno 2] No such file or directory: 'filename'"
+                parts = error_str.split(":")
+                if len(parts) > 1:
+                    missing_file = parts[-1].strip().strip("'\"")
+            
+            helpful_msg = (
+                f"Execution failed: FileNotFoundError: {e}\n"
+                f"    -> Be sure '{missing_file}' is in the same location as '{student_filename}' "
+                f"which is located at: {student_dir}"
+            )
+            self._log_result(False, helpful_msg, custom_fail_feedback=custom_fail_feedback)
+            return False
+        except OSError as e:
+            # Handle other OS errors that might be file-related
+            error_str = str(e)
+            if "No such file" in error_str or "cannot find" in error_str.lower():
+                missing_file = error_str
+                if ":" in error_str:
+                    parts = error_str.split(":")
+                    if len(parts) > 1:
+                        missing_file = parts[-1].strip().strip("'\"")
+                
+                helpful_msg = (
+                    f"Execution failed: {type(e).__name__}: {e}\n"
+                    f"    -> Be sure '{missing_file}' is in the same location as '{student_filename}' "
+                    f"which is located at: {student_dir}"
+                )
+                self._log_result(False, helpful_msg, custom_fail_feedback=custom_fail_feedback)
+            else:
+                self._log_result(False, f"Execution failed: {type(e).__name__}: {e}",
+                               custom_fail_feedback=custom_fail_feedback)
+            return False
         except Exception as e:
             self._log_result(False, f"Execution failed: {type(e).__name__}: {e}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
     
     def _get_safe_builtins(self) -> Dict[str, Any]:
         """Return a dictionary of safe built-in functions."""
@@ -508,7 +560,15 @@ class AutoGrader:
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
+        # Save current working directory and change to solution file's directory
+        original_cwd = os.getcwd()
+        solution_dir = os.path.dirname(os.path.abspath(solution_path))
+        
         try:
+            # Change to solution file's directory so file operations work correctly
+            if solution_dir:
+                os.chdir(solution_dir)
+            
             with open(solution_path, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
@@ -561,6 +621,9 @@ class AutoGrader:
             self._log_result(False, f"Error executing solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
     
     def _compare_values_detailed(self, var_name: str, student_value: Any, solution_value: Any, 
                                  tolerance: float, require_same_type: bool = False,
@@ -830,7 +893,15 @@ class AutoGrader:
                            custom_fail_feedback=custom_fail_feedback)
             return False
         
+        # Save current working directory and change to solution file's directory
+        original_cwd = os.getcwd()
+        solution_dir = os.path.dirname(os.path.abspath(solution_path))
+        
         try:
+            # Change to solution file's directory so file operations work correctly
+            if solution_dir:
+                os.chdir(solution_dir)
+            
             with open(solution_path, 'r', encoding='utf-8') as f:
                 solution_content = f.read()
             
@@ -888,6 +959,9 @@ class AutoGrader:
             self._log_result(False, f"Error executing solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
     
     def check_variable_relationship(self, var1_name: str, var2_name: str, relationship: Callable, 
                                     tolerance: float = 1e-6, description: str = None,
@@ -1047,13 +1121,26 @@ class AutoGrader:
                 all_passed = False
         
         if has_legend is not None:
-            legend_exists = ax.get_legend() is not None
-            if legend_exists == has_legend:
+            legend = ax.get_legend()
+            # Check not just that legend exists, but that it has non-empty text entries
+            if legend is not None:
+                legend_texts = legend.get_texts()
+                # Legend is valid if it has at least one non-empty text entry
+                has_valid_legend = any(text.get_text().strip() for text in legend_texts)
+            else:
+                has_valid_legend = False
+            
+            if has_valid_legend == has_legend:
                 self._log_result(True, f"Plot {'has' if has_legend else 'does not have'} legend",
                                custom_pass_feedback=custom_pass_feedback)
             else:
-                self._log_result(False, f"Plot {'should have' if has_legend else 'should not have'} legend",
-                               custom_fail_feedback=custom_fail_feedback)
+                if has_legend and legend is not None and not has_valid_legend:
+                    # Legend exists but is empty
+                    self._log_result(False, f"Plot has a legend but it contains no labels. Add labels to your plot lines or pass labels to plt.legend().",
+                                   custom_fail_feedback=custom_fail_feedback)
+                else:
+                    self._log_result(False, f"Plot {'should have' if has_legend else 'should not have'} legend",
+                                   custom_fail_feedback=custom_fail_feedback)
                 all_passed = False
         
         if has_grid is not None:
@@ -1283,7 +1370,15 @@ class AutoGrader:
             self._log_result(False, f"Solution file not found", custom_fail_feedback=custom_fail_feedback)
             return False
         
+        # Save current working directory and change to solution file's directory
+        original_cwd = os.getcwd()
+        solution_dir = os.path.dirname(os.path.abspath(solution_path))
+        
         try:
+            # Change to solution file's directory so file operations work correctly
+            if solution_dir:
+                os.chdir(solution_dir)
+            
             # Now close all figures before running solution
             plt.close('all')
             
@@ -1366,12 +1461,24 @@ class AutoGrader:
             self._log_result(False, f"Error comparing with solution: {str(e)}",
                            custom_fail_feedback=custom_fail_feedback)
             return False
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
     
     def _restore_student_plot(self):
         """Re-execute student code to restore their plot state."""
         if self._content is None:
             return
+        
+        # Save current working directory and change to student file's directory
+        original_cwd = os.getcwd()
+        student_dir = os.path.dirname(os.path.abspath(self.filepath)) if self.filepath else None
+        
         try:
+            # Change to student file's directory so file operations work correctly
+            if student_dir:
+                os.chdir(student_dir)
+            
             # Close any existing figures first
             plt.close('all')
             safe_builtins = self._get_safe_builtins()
@@ -1379,6 +1486,9 @@ class AutoGrader:
             exec(self._content, temp_namespace, temp_namespace)
         except:
             pass  # Silently fail - plot restoration is best effort
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
     
     def check_plot_data_length(self, min_length: Optional[int] = None, max_length: Optional[int] = None,
                                 exact_length: Optional[int] = None, line_index: int = 0, fig_num: int = 1,
